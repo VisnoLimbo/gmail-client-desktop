@@ -88,6 +88,26 @@ def list_folders(account_id: int) -> List[Folder]:
     return [_row_to_folder(row) for row in rows]
 
 
+def get_folder(folder_id: int) -> Optional[Folder]:
+    """
+    Get a folder by ID.
+    
+    Args:
+        folder_id: The folder ID.
+        
+    Returns:
+        A Folder object or None if not found.
+    """
+    row = db.fetchone(
+        "SELECT * FROM folders WHERE id = ?",
+        (folder_id,)
+    )
+    
+    if row:
+        return _row_to_folder(row)
+    return None
+
+
 def delete_folder(folder_id: int) -> None:
     """
     Delete a folder by ID.

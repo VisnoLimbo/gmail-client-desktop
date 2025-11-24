@@ -35,6 +35,10 @@ class OAuthThread(QThread):
     def run(self):
         """Run OAuth authentication in background thread"""
         try:
+            # Check for interruption request
+            if self.isInterruptionRequested():
+                return
+            
             from email_client.oauth2_handler import OAuth2Handler
             oauth_handler = OAuth2Handler(self.provider)
             
@@ -43,15 +47,17 @@ class OAuthThread(QThread):
             elif self.auth_method == 'outlook':
                 token_json = oauth_handler.authenticate_outlook()
             else:
-                self.authentication_failed.emit(f"Unknown auth method: {self.auth_method}")
+                if not self.isInterruptionRequested():
+                    self.authentication_failed.emit(f"Unknown auth method: {self.auth_method}")
                 return
             
-            if token_json:
+            if token_json and not self.isInterruptionRequested():
                 self.authentication_complete.emit(token_json)
-            else:
+            elif not self.isInterruptionRequested():
                 self.authentication_failed.emit("OAuth authentication failed or was cancelled.")
         except Exception as e:
-            self.authentication_failed.emit(f"OAuth error: {str(e)}")
+            if not self.isInterruptionRequested():
+                self.authentication_failed.emit(f"OAuth error: {str(e)}")
 
 
 class MainWindow(QMainWindow):
@@ -422,10 +428,56 @@ class MainWindow(QMainWindow):
                     QMessageBox.warning(self, "OAuth2 Required", "OAuth2 is required for this provider.")
                     return
             else:
-                QMessageBox.warning(self, "OAuth2 Required", "OAuth2 authentication is required. Please enable it in the login window.")
+                # Password-based authentication
+                self._create_password_account(account_data, login_window)
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Failed to add account: {str(e)}")
             # Re-enable login button on error
+            if login_window:
+                login_window.progress_bar.setVisible(False)
+                login_window.login_button.setEnabled(True)
+    
+    def _create_password_account(self, account_data: dict, login_window: LoginWindow = None):
+        """Create a password-based account"""
+        try:
+            from email_client.auth.accounts import create_password_account
+            
+            account = create_password_account(
+                provider_name=account_data['provider'],
+                email=account_data['email'],
+                password=account_data['password'],
+                display_name=account_data['display_name'],
+                imap_host=account_data.get('imap_server'),
+                smtp_host=account_data.get('smtp_server'),
+                imap_port=account_data.get('imap_port', 993),
+                smtp_port=account_data.get('smtp_port', 587),
+                use_tls=account_data.get('use_tls', True)
+            )
+            
+            # Close login window
+            if login_window:
+                login_window.accept()
+            
+            # Reload accounts to refresh UI
+            self.load_accounts()
+            
+            # Select the newly added account
+            if account.id:
+                self.on_account_selected(account.id)
+            
+            # Sync folders in background thread with progress updates
+            self._start_initial_sync(account)
+            
+            # Bring main window to front
+            self.show()
+            self.raise_()
+            self.activateWindow()
+            
+            QMessageBox.information(self, "Success", f"Account '{account_data['email']}' added successfully!")
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            QMessageBox.critical(self, "Error", f"Failed to create account: {str(e)}")
             if login_window:
                 login_window.progress_bar.setVisible(False)
                 login_window.login_button.setEnabled(True)
@@ -574,12 +626,8 @@ class MainWindow(QMainWindow):
             if account.id:
                 self.on_account_selected(account.id)
             
-            # Sync folders in background (using new system)
-            try:
-                self._sync_account_folders_new(account)
-            except Exception as sync_error:
-                print(f"Warning: Folder sync failed: {sync_error}")
-                # Continue anyway - account is added
+            # Sync folders in background thread with progress updates
+            self._start_initial_sync(account)
             
             # Bring main window to front
             self.show()
@@ -608,14 +656,21 @@ class MainWindow(QMainWindow):
         self.sidebar.set_folders(folders)
         
         # Select inbox if available
+        inbox_folder = None
         for folder in folders:
             if folder.is_system_folder and (
                 folder.server_path.upper() == 'INBOX' or 
                 folder.name.upper() == 'INBOX'
             ):
-                if folder.id:
-                    self.sidebar.select_folder(folder.id)
+                inbox_folder = folder
                 break
+        
+        # If no inbox found, select first folder
+        if not inbox_folder and folders:
+            inbox_folder = folders[0]
+        
+        if inbox_folder and inbox_folder.id:
+            self.sidebar.select_folder(inbox_folder.id)
     
     def on_remove_account_menu_clicked(self):
         """Handle remove account from menu"""
@@ -681,12 +736,43 @@ class MainWindow(QMainWindow):
         """Handle folder selection"""
         self.current_folder_id = folder_id
         folder = self.folder_controller.get_folder(folder_id)
-        if folder:
+        if not folder:
+            print(f"Warning: Folder with id {folder_id} not found")
+            return
+        
             # Switch to list view
             self.right_stack.setCurrentIndex(0)
             
-            # Load emails using controller
+        # Check if this is "All Mail" - it should show emails from all folders
+        is_all_mail = (
+            folder.name.upper() == 'ALL MAIL' or 
+            folder.server_path.upper().endswith('/ALL MAIL') or
+            '[GMAIL]/ALL MAIL' in folder.server_path.upper()
+        )
+        
+        if is_all_mail:
+            # For "All Mail", load emails from all folders for this account
+            all_folders = self.folder_controller.list_folders(folder.account_id)
+            all_emails = []
+            for f in all_folders:
+                if f.id and f.id != folder_id:  # Exclude "All Mail" itself to avoid duplicates
+                    folder_emails = self.message_controller.list_messages(f.id, limit=1000)
+                    all_emails.extend(folder_emails)
+            
+            # Remove duplicates by email ID (in case same email exists in multiple folders)
+            seen_ids = set()
+            unique_emails = []
+            for email in all_emails:
+                if email.id and email.id not in seen_ids:
+                    seen_ids.add(email.id)
+                    unique_emails.append(email)
+            
+            print(f"All Mail: Loaded {len(unique_emails)} unique emails from {len(all_folders)} folders")
+            self.email_list.set_emails(unique_emails)
+        else:
+            # For regular folders, load emails from that folder
             emails = self.message_controller.list_messages(folder_id, limit=100)
+            print(f"Folder '{folder.name}' (id={folder_id}, account_id={folder.account_id}): Loaded {len(emails)} emails")
             self.email_list.set_emails(emails)
             
             # Sync in background if needed
@@ -700,19 +786,158 @@ class MainWindow(QMainWindow):
                 self.sync_folder(account, folder)
     
     def sync_folder(self, account: EmailAccount, folder: Folder):
-        """Sync emails for a folder using SyncController"""
-        try:
-            self.status_bar.showMessage(f"Syncing {folder.name}...")
-            # Use sync controller (runs synchronously, but we can make it async if needed)
-            synced_count = self.sync_controller.sync_folder(folder, limit=100)
-            self.status_bar.showMessage(f"Synced {synced_count} messages from {folder.name}")
-            # Reload emails
-            if self.current_folder_id:
-                emails = self.message_controller.list_messages(self.current_folder_id, limit=100)
-                self.email_list.set_emails(emails)
-        except Exception as e:
-            self.status_bar.showMessage(f"Sync error: {str(e)}")
-            QMessageBox.warning(self, "Sync Error", f"Failed to sync folder: {str(e)}")
+        """Sync emails for a folder using SyncController (runs in background)"""
+        # Run sync in background to avoid blocking UI
+        from PyQt5.QtCore import QThread, pyqtSignal
+        
+        class SyncThread(QThread):
+            finished_signal = pyqtSignal(int)  # synced_count
+            error_signal = pyqtSignal(str)  # error message
+            
+            def __init__(self, sync_controller, folder, limit):
+                super().__init__()
+                self.sync_controller = sync_controller
+                self.folder = folder
+                self.limit = limit
+            
+            def run(self):
+                try:
+                    # Check for interruption request
+                    if self.isInterruptionRequested():
+                        return
+                    synced_count = self.sync_controller.sync_folder(self.folder, limit=self.limit)
+                    if not self.isInterruptionRequested():
+                        self.finished_signal.emit(synced_count)
+                except Exception as e:
+                    if not self.isInterruptionRequested():
+                        self.error_signal.emit(str(e))
+        
+        # Show status message
+        self.status_bar.showMessage(f"Syncing {folder.name}...")
+        
+        # Create and start sync thread
+        sync_thread = SyncThread(self.sync_controller, folder, limit=100)
+        sync_thread.finished_signal.connect(
+            lambda count: self._on_sync_complete(folder, count)
+        )
+        sync_thread.error_signal.connect(
+            lambda error: self._on_sync_error(folder, error)
+        )
+        
+        # Store thread reference to prevent garbage collection and allow cleanup
+        if not hasattr(self, '_sync_threads'):
+            self._sync_threads = []
+        self._sync_threads.append(sync_thread)
+        
+        # Connect finished signal to remove from list when done
+        def on_finished():
+            if hasattr(self, '_sync_threads') and sync_thread in self._sync_threads:
+                self._sync_threads.remove(sync_thread)
+        
+        sync_thread.finished.connect(on_finished)
+        sync_thread.start()
+    
+    def _start_initial_sync(self, account: EmailAccount):
+        """Start initial sync in background thread with progress updates"""
+        from PyQt5.QtCore import QThread, pyqtSignal, QTimer
+        
+        class InitialSyncThread(QThread):
+            progress_signal = pyqtSignal(str, int, int)  # folder_name, synced_count, total_folders
+            finished_signal = pyqtSignal(list)  # folders
+            error_signal = pyqtSignal(str)  # error message
+            
+            def __init__(self, sync_controller, account, inbox_limit, folder_limit):
+                super().__init__()
+                self.sync_controller = sync_controller
+                self.account = account
+                self.inbox_limit = inbox_limit
+                self.folder_limit = folder_limit
+            
+            def run(self):
+                try:
+                    # Check for interruption request
+                    if self.isInterruptionRequested():
+                        return
+                    
+                    def progress_callback(folder_name, synced_count, total_folders):
+                        if not self.isInterruptionRequested():
+                            self.progress_signal.emit(folder_name, synced_count, total_folders)
+                    
+                    folders = self.sync_controller.initial_sync(
+                        self.account, 
+                        inbox_limit=self.inbox_limit,
+                        folder_limit=self.folder_limit,
+                        progress_callback=progress_callback
+                    )
+                    if not self.isInterruptionRequested():
+                        self.finished_signal.emit(folders)
+                except Exception as e:
+                    if not self.isInterruptionRequested():
+                        import traceback
+                        traceback.print_exc()
+                        self.error_signal.emit(str(e))
+        
+        # Create and start sync thread
+        sync_thread = InitialSyncThread(
+            self.sync_controller, 
+            account, 
+            inbox_limit=100,
+            folder_limit=50
+        )
+        sync_thread.progress_signal.connect(
+            lambda folder_name, synced_count, total: self._on_sync_progress(account, folder_name, synced_count, total)
+        )
+        sync_thread.finished_signal.connect(
+            lambda folders: self._on_initial_sync_complete(account, folders)
+        )
+        sync_thread.error_signal.connect(
+            lambda error: self._on_initial_sync_error(account, error)
+        )
+        
+        # Store thread reference to prevent garbage collection
+        if not hasattr(self, '_sync_threads'):
+            self._sync_threads = []
+        self._sync_threads.append(sync_thread)
+        
+        # Defer sync by 500ms to ensure UI is responsive
+        QTimer.singleShot(500, sync_thread.start)
+    
+    def _on_sync_progress(self, account: EmailAccount, folder_name: str, synced_count: int, total_folders: int):
+        """Handle sync progress updates"""
+        self.status_bar.showMessage(
+            f"Syncing {account.email_address}: {folder_name} ({synced_count} messages) "
+            f"[{total_folders} folders total]"
+        )
+    
+    def _on_initial_sync_complete(self, account: EmailAccount, folders: list):
+        """Handle initial sync completion"""
+        total_messages = sum(folder.unread_count or 0 for folder in folders)
+        self.status_bar.showMessage(
+            f"Initial sync complete: {len(folders)} folders, {total_messages} messages for {account.email_address}"
+        )
+        # Reload folders
+        if account.id:
+            self.on_account_selected(account.id)
+    
+    def _on_initial_sync_error(self, account: EmailAccount, error: str):
+        """Handle initial sync error"""
+        import traceback
+        traceback.print_exc()
+        self.status_bar.showMessage(f"Sync error for {account.email_address}: {error}")
+        print(f"Warning: Folder sync failed: {error}")
+    
+    def _on_sync_complete(self, folder: Folder, synced_count: int):
+        """Handle successful folder sync"""
+        self.status_bar.showMessage(f"Synced {synced_count} messages from {folder.name}")
+        # Reload emails
+        if self.current_folder_id:
+            emails = self.message_controller.list_messages(self.current_folder_id, limit=100)
+            self.email_list.set_emails(emails)
+    
+    def _on_sync_error(self, folder: Folder, error: str):
+        """Handle folder sync error"""
+        self.status_bar.showMessage(f"Sync error: {error}")
+        QMessageBox.warning(self, "Sync Error", f"Failed to sync folder {folder.name}: {error}")
     
     def auto_sync(self):
         """Auto-sync current folder"""
@@ -909,15 +1134,28 @@ class MainWindow(QMainWindow):
                 # Create drafts folder if it doesn't exist
                 from email_client.core.folder_manager import FolderManager
                 from email_client.network.imap_client import ImapClient
-                from email_client.auth.accounts import get_token_bundle, get_account
+                from email_client.auth.accounts import get_token_bundle, get_password, get_account
                 
                 account = get_account(account_id)
                 if not account:
                     QMessageBox.warning(self, "Error", "Account not found.")
                     return
                 
-                token_bundle = get_token_bundle(account_id)
-                imap_client = ImapClient(account, token_bundle)
+                # Get authentication credentials based on account type
+                token_bundle = None
+                password = None
+                if account.auth_type == "oauth":
+                    try:
+                        token_bundle = get_token_bundle(account_id)
+                    except Exception:
+                        pass
+                elif account.auth_type == "password":
+                    try:
+                        password = get_password(account_id)
+                    except Exception:
+                        pass
+                
+                imap_client = ImapClient(account, token_bundle=token_bundle, password=password)
                 folder_manager = FolderManager(imap_client, cache_repo.upsert_folder)
                 
                 drafts_folder = folder_manager.create_folder("Drafts")
@@ -1017,11 +1255,26 @@ class MainWindow(QMainWindow):
                 from email_client.storage import db
                 db.execute("DELETE FROM emails WHERE id = ?", (draft_email_id,))
             
-            # Get token bundle
-            token_bundle = get_token_bundle(self.current_account_id)
+            # Get authentication credentials based on account type
+            token_bundle = None
+            password = None
             
-            # Create SMTP client
-            smtp_client = SmtpClient(account, token_bundle)
+            if account.auth_type == "oauth":
+                try:
+                    token_bundle = get_token_bundle(self.current_account_id)
+                except Exception as e:
+                    QMessageBox.critical(self, "Error", f"Failed to get OAuth token: {str(e)}")
+                    return
+            elif account.auth_type == "password":
+                try:
+                    from email_client.auth.accounts import get_password
+                    password = get_password(self.current_account_id)
+                except Exception as e:
+                    QMessageBox.critical(self, "Error", f"Failed to get password: {str(e)}")
+                    return
+            
+            # Create SMTP client with appropriate authentication
+            smtp_client = SmtpClient(account, token_bundle=token_bundle, password=password)
             
             # Build EmailMessage
             email_message = EmailMessage(
@@ -1103,10 +1356,102 @@ class MainWindow(QMainWindow):
         QMessageBox.about(self, "About", "Email Desktop Client\n\nA cross-platform email client built with Python and PyQt5.")
     
     def closeEvent(self, event):
-        """Handle window close event"""
-        if self.sync_thread and self.sync_thread.isRunning():
-            self.sync_thread.terminate()
-            self.sync_thread.wait()
-        self.db_manager.close()
+        """Handle window close event - graceful shutdown"""
+        try:
+            # Stop auto-sync timer
+            if hasattr(self, 'sync_timer') and self.sync_timer:
+                try:
+                    self.sync_timer.stop()
+                except Exception:
+                    pass
+            
+            # Stop OAuth thread gracefully if running
+            if hasattr(self, 'oauth_thread') and self.oauth_thread:
+                if self.oauth_thread.isRunning():
+                    # Request thread to stop gracefully
+                    self.oauth_thread.requestInterruption()
+                    # Wait for OAuth thread to finish (with timeout)
+                    if not self.oauth_thread.wait(2000):  # Wait up to 2 seconds
+                        # If still running, terminate it
+                        try:
+                            self.oauth_thread.terminate()
+                            self.oauth_thread.wait(1000)  # Wait up to 1 more second
+                        except Exception:
+                            pass
+                try:
+                    self.oauth_thread.deleteLater()
+                except Exception:
+                    pass
+                self.oauth_thread = None
+            
+            # Close OAuth progress dialog if open
+            if hasattr(self, 'oauth_progress_dialog') and self.oauth_progress_dialog:
+                try:
+                    self.oauth_progress_dialog.close()
+                    self.oauth_progress_dialog = None
+                except Exception:
+                    pass
+            
+            # Stop sync thread gracefully if running
+            if hasattr(self, 'sync_thread') and self.sync_thread:
+                if self.sync_thread.isRunning():
+                    # Request thread to stop gracefully
+                    self.sync_thread.requestInterruption()
+                    # Wait for sync thread to finish (with timeout)
+                    if not self.sync_thread.wait(2000):  # Wait up to 2 seconds
+                        # If still running, terminate it
+                        try:
+                            self.sync_thread.terminate()
+                            self.sync_thread.wait(1000)  # Wait up to 1 more second
+                        except Exception:
+                            pass
+                try:
+                    self.sync_thread.deleteLater()
+                except Exception:
+                    pass
+                self.sync_thread = None
+            
+            # Stop all sync threads from _sync_threads list
+            if hasattr(self, '_sync_threads') and self._sync_threads:
+                threads_to_cleanup = list(self._sync_threads)  # Copy list to avoid modification during iteration
+                for sync_thread in threads_to_cleanup:
+                    if sync_thread:
+                        try:
+                            if sync_thread.isRunning():
+                                # Request thread to stop gracefully
+                                sync_thread.requestInterruption()
+                                # Wait for thread to finish (with timeout)
+                                if not sync_thread.wait(2000):  # Wait up to 2 seconds
+                                    # If still running, terminate it
+                                    try:
+                                        sync_thread.terminate()
+                                        sync_thread.wait(1000)  # Wait up to 1 more second
+                                    except Exception:
+                                        pass
+                            # Clean up thread
+                            sync_thread.deleteLater()
+                        except Exception:
+                            pass
+                self._sync_threads.clear()
+            
+            # Close database manager if it exists (legacy code)
+            if hasattr(self, 'db_manager') and self.db_manager:
+                try:
+                    self.db_manager.close()
+                except Exception:
+                    pass  # Ignore errors during shutdown
+            
+            # Process any pending events to ensure cleanup completes
+            # But limit it to avoid reentrant calls
+            try:
+                QApplication.processEvents(QApplication.ExcludeUserInputEvents)
+            except Exception:
+                pass
+            
+        except Exception as e:
+            # Log but don't prevent shutdown
+            print(f"Error during shutdown: {e}")
+        
+        # Always accept the close event to allow the app to close
         event.accept()
 

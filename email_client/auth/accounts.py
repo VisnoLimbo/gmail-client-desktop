@@ -83,10 +83,55 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             imap_host TEXT NOT NULL,
             smtp_host TEXT NOT NULL,
             encrypted_token_bundle TEXT,
+            auth_type TEXT DEFAULT 'oauth',
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             is_default INTEGER DEFAULT 0
         )
     """)
+    # Add missing columns if they don't exist (for existing databases)
+    # SQLite doesn't support checking if a column exists directly,
+    # so we use try/except on ALTER TABLE
+    
+    # Check and add encrypted_token_bundle column
+    try:
+        cursor.execute("ALTER TABLE accounts ADD COLUMN encrypted_token_bundle TEXT")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    
+    # Check and add auth_type column
+    try:
+        cursor.execute("ALTER TABLE accounts ADD COLUMN auth_type TEXT DEFAULT 'oauth'")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    
+    # Check and add imap_host column (if missing)
+    try:
+        cursor.execute("ALTER TABLE accounts ADD COLUMN imap_host TEXT")
+        # Update existing rows with empty string if needed
+        cursor.execute("UPDATE accounts SET imap_host = '' WHERE imap_host IS NULL")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    
+    # Check and add smtp_host column (if missing)
+    try:
+        cursor.execute("ALTER TABLE accounts ADD COLUMN smtp_host TEXT")
+        # Update existing rows with empty string if needed
+        cursor.execute("UPDATE accounts SET smtp_host = '' WHERE smtp_host IS NULL")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    
+    # Check and add created_at column (if missing)
+    try:
+        cursor.execute("ALTER TABLE accounts ADD COLUMN created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    
+    # Check and add is_default column (if missing)
+    try:
+        cursor.execute("ALTER TABLE accounts ADD COLUMN is_default INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+    
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_accounts_email ON accounts(email_address)")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_accounts_default ON accounts(is_default)")
     conn.commit()
@@ -172,7 +217,7 @@ def _get_provider_hosts(provider_name: str) -> Tuple[str, str]:
 def _row_to_email_account(row: sqlite3.Row) -> EmailAccount:
     """Convert a database row to an EmailAccount model."""
     created_at = None
-    if row["created_at"]:
+    if "created_at" in row.keys() and row["created_at"]:
         try:
             if isinstance(row["created_at"], str):
                 created_at = datetime.fromisoformat(row["created_at"].replace("Z", "+00:00"))
@@ -181,15 +226,21 @@ def _row_to_email_account(row: sqlite3.Row) -> EmailAccount:
         except (ValueError, AttributeError):
             pass
     
+    # Handle auth_type - use 'oauth' as default if column doesn't exist
+    auth_type = "oauth"
+    if "auth_type" in row.keys():
+        auth_type = row["auth_type"] or "oauth"
+    
     return EmailAccount(
         id=row["id"],
         display_name=row["display_name"] or "",
         email_address=row["email_address"],
         provider=row["provider"],
-        imap_host=row["imap_host"],
-        smtp_host=row["smtp_host"],
+        imap_host=row["imap_host"] if "imap_host" in row.keys() else "",
+        smtp_host=row["smtp_host"] if "smtp_host" in row.keys() else "",
+        auth_type=auth_type,
         created_at=created_at,
-        is_default=bool(row["is_default"]),
+        is_default=bool(row["is_default"]) if "is_default" in row.keys() else False,
     )
 
 
@@ -237,7 +288,7 @@ def get_account(account_id: int) -> Optional[EmailAccount]:
 
 def get_token_bundle(account_id: int) -> Optional[TokenBundle]:
     """
-    Get the token bundle for an account.
+    Get the token bundle for an OAuth account.
     
     Args:
         account_id: The account ID.
@@ -247,15 +298,23 @@ def get_token_bundle(account_id: int) -> Optional[TokenBundle]:
         
     Raises:
         AccountNotFoundError: If the account doesn't exist.
-        AccountError: If decryption fails.
+        AccountError: If decryption fails or account is not OAuth-based.
     """
     conn = _get_db_connection()
     try:
         cursor = conn.cursor()
-        cursor.execute("SELECT encrypted_token_bundle FROM accounts WHERE id = ?", (account_id,))
+        cursor.execute("SELECT encrypted_token_bundle, auth_type FROM accounts WHERE id = ?", (account_id,))
         row = cursor.fetchone()
         if not row:
             raise AccountNotFoundError(f"Account with ID {account_id} not found")
+        
+        # Check auth_type - default to 'oauth' if column doesn't exist
+        auth_type = "oauth"
+        if "auth_type" in row.keys():
+            auth_type = row["auth_type"] or "oauth"
+        
+        if auth_type != "oauth":
+            raise AccountError(f"Account {account_id} is not an OAuth account")
         
         encrypted_data = row["encrypted_token_bundle"]
         if not encrypted_data:
@@ -266,6 +325,144 @@ def get_token_bundle(account_id: int) -> Optional[TokenBundle]:
         raise
     except Exception as e:
         raise AccountError(f"Failed to retrieve token bundle: {str(e)}")
+    finally:
+        conn.close()
+
+
+def get_password(account_id: int) -> Optional[str]:
+    """
+    Get the password for a password-based account.
+    
+    Args:
+        account_id: The account ID.
+        
+    Returns:
+        The decrypted password if found, None otherwise.
+        
+    Raises:
+        AccountNotFoundError: If the account doesn't exist.
+        AccountError: If decryption fails or account is not password-based.
+    """
+    conn = _get_db_connection()
+    try:
+        cursor = conn.cursor()
+        cursor.execute("SELECT encrypted_token_bundle, auth_type FROM accounts WHERE id = ?", (account_id,))
+        row = cursor.fetchone()
+        if not row:
+            raise AccountNotFoundError(f"Account with ID {account_id} not found")
+        
+        # Check auth_type - default to 'oauth' if column doesn't exist
+        auth_type = "oauth"
+        if "auth_type" in row.keys():
+            auth_type = row["auth_type"] or "oauth"
+        
+        if auth_type != "password":
+            raise AccountError(f"Account {account_id} is not a password-based account")
+        
+        encrypted_data = row["encrypted_token_bundle"]
+        if not encrypted_data:
+            return None
+        
+        encryption_manager = _get_encryption_manager()
+        return encryption_manager.decrypt(encrypted_data)
+    except AccountNotFoundError:
+        raise
+    except Exception as e:
+        raise AccountError(f"Failed to retrieve password: {str(e)}")
+    finally:
+        conn.close()
+
+
+def _encrypt_password(password: str) -> str:
+    """Encrypt a password for storage."""
+    encryption_manager = _get_encryption_manager()
+    return encryption_manager.encrypt(password)
+
+
+def create_password_account(
+    provider_name: str,
+    email: str,
+    password: str,
+    display_name: str,
+    imap_host: str = None,
+    smtp_host: str = None,
+    imap_port: int = 993,
+    smtp_port: int = 587,
+    use_tls: bool = True
+) -> EmailAccount:
+    """
+    Create a new password-based email account.
+    
+    Args:
+        provider_name: The provider name (e.g., 'gmail', 'outlook', 'yahoo', 'custom').
+        email: The email address.
+        password: The password or app password.
+        display_name: The display name for the account.
+        imap_host: IMAP server host (defaults to provider default if None).
+        smtp_host: SMTP server host (defaults to provider default if None).
+        imap_port: IMAP server port.
+        smtp_port: SMTP server port.
+        use_tls: Whether to use TLS/SSL.
+        
+    Returns:
+        The created EmailAccount.
+        
+    Raises:
+        AccountCreationError: If account creation fails.
+    """
+    # Get provider-specific hosts if not provided
+    if imap_host is None or smtp_host is None:
+        default_imap, default_smtp = _get_provider_hosts(provider_name)
+        imap_host = imap_host or default_imap
+        smtp_host = smtp_host or default_smtp
+    
+    # Encrypt password
+    try:
+        encrypted_password = _encrypt_password(password)
+    except Exception as e:
+        raise AccountCreationError(f"Failed to encrypt password: {str(e)}")
+    
+    conn = _get_db_connection()
+    try:
+        cursor = conn.cursor()
+        
+        # Check if account with this email already exists
+        cursor.execute("SELECT id FROM accounts WHERE email_address = ?", (email,))
+        if cursor.fetchone():
+            raise AccountCreationError(f"Account with email {email} already exists")
+        
+        # If this is the first account, make it default
+        cursor.execute("SELECT COUNT(*) as count FROM accounts")
+        is_first_account = cursor.fetchone()["count"] == 0
+        
+        # Insert new account
+        cursor.execute("""
+            INSERT INTO accounts (
+                display_name, email_address, provider, imap_host, smtp_host,
+                encrypted_token_bundle, auth_type, is_default
+            )
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (
+            display_name,
+            email,
+            provider_name.lower(),
+            imap_host,
+            smtp_host,
+            encrypted_password,  # Store encrypted password in encrypted_token_bundle field
+            'password',
+            1 if is_first_account else 0,
+        ))
+        
+        account_id = cursor.lastrowid
+        conn.commit()
+        
+        # Return the created account
+        return get_account(account_id)
+    except AccountCreationError:
+        raise
+    except Exception as e:
+        conn.rollback()
+        raise AccountCreationError(f"Failed to create account: {str(e)}")
     finally:
         conn.close()
 
@@ -317,9 +514,9 @@ def create_oauth_account(
         cursor.execute("""
             INSERT INTO accounts (
                 display_name, email_address, provider, imap_host, smtp_host,
-                encrypted_token_bundle, is_default
+                encrypted_token_bundle, auth_type, is_default
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
         """, (
             display_name,
             profile_email,
@@ -327,6 +524,7 @@ def create_oauth_account(
             imap_host,
             smtp_host,
             encrypted_token,
+            'oauth',
             1 if is_first_account else 0,
         ))
         

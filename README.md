@@ -78,14 +78,19 @@ The Email Desktop Client is a full-featured desktop application that provides a 
    python -c "from email_client.storage.db import init_db; init_db()"
    ```
 
-5. **Set up OAuth credentials (optional but recommended):**
+5. **Set up OAuth credentials (required for Gmail/Outlook):**
 
    Create a `.env` file in the project root:
 
    ```bash
    # .env
-   OAUTH_CLIENT_ID=your_client_id_here
-   OAUTH_CLIENT_SECRET=your_client_secret_here
+   # For Gmail
+   GMAIL_CLIENT_ID=your_gmail_client_id_here
+   GMAIL_CLIENT_SECRET=your_gmail_client_secret_here
+   
+   # For Outlook (optional)
+   OUTLOOK_CLIENT_ID=your_outlook_client_id_here
+   OUTLOOK_CLIENT_SECRET=your_outlook_client_secret_here
    ```
 
    See the [Configuration](#configuration) section for detailed OAuth setup instructions.
@@ -112,8 +117,13 @@ The application reads configuration from environment variables and a `.env` file
 
 ```env
 # OAuth2 Credentials (Required for Gmail/Outlook OAuth)
-OAUTH_CLIENT_ID=your_google_or_microsoft_client_id
-OAUTH_CLIENT_SECRET=your_google_or_microsoft_client_secret
+# For Gmail
+GMAIL_CLIENT_ID=your_gmail_client_id_here
+GMAIL_CLIENT_SECRET=your_gmail_client_secret_here
+
+# For Outlook (optional)
+OUTLOOK_CLIENT_ID=your_outlook_client_id_here
+OUTLOOK_CLIENT_SECRET=your_outlook_client_secret_here
 
 # Database Path (Optional - defaults to ~/.email_client/email_client.db)
 SQLITE_DB_PATH=/custom/path/to/email_client.db
@@ -127,9 +137,9 @@ SQLITE_DB_PATH=/custom/path/to/email_client.db
 2. Create a new project or select an existing one
 3. Enable the Gmail API
 4. Go to "Credentials" → "Create Credentials" → "OAuth 2.0 Client ID"
-5. Choose "Desktop app" as the application type
-6. Set the redirect URI to: `http://localhost:8080/callback`
-7. Copy the Client ID and Client Secret to your `.env` file
+5. **Choose "Web application" as the application type** (required because the app uses a redirect URI callback)
+6. **Add authorized redirect URI:** `http://localhost:8080/callback`
+7. Click "Create" and copy the Client ID and Client Secret to your `.env` file
 
 #### Outlook OAuth2
 

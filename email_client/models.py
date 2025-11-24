@@ -18,6 +18,7 @@ class EmailAccount:
     provider: str = ""  # e.g., 'gmail', 'outlook', 'yahoo', 'custom'
     imap_host: str = ""
     smtp_host: str = ""
+    auth_type: str = "oauth"  # 'oauth' or 'password'
     created_at: Optional[datetime] = None
     is_default: bool = False
 

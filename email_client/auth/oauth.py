@@ -8,8 +8,9 @@ from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional, List
-from email_client.config import OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET
-
+from email_client.config import OAUTH_REDIRECT_URI
+import config  # Root config module for Gmail credentials, OAUTH_REDIRECT_URI
+import config
 
 @dataclass(slots=True)
 class TokenBundle:
@@ -100,25 +101,30 @@ class GoogleOAuthProvider(OAuthProvider):
         self,
         client_id: Optional[str] = None,
         client_secret: Optional[str] = None,
-        redirect_uri: str = "http://localhost:8080/callback",
+        redirect_uri: Optional[str] = None,
         scopes: Optional[List[str]] = None
     ):
         """
         Initialize the Google OAuth provider.
         
         Args:
-            client_id: OAuth client ID (defaults to OAUTH_CLIENT_ID from config).
-            client_secret: OAuth client secret (defaults to OAUTH_CLIENT_SECRET from config).
-            redirect_uri: The redirect URI registered with Google (defaults to localhost).
+            client_id: OAuth client ID (defaults to GMAIL_CLIENT_ID from root config).
+            client_secret: OAuth client secret (defaults to GMAIL_CLIENT_SECRET from root config).
+            redirect_uri: The redirect URI registered with Google (defaults to OAUTH_REDIRECT_URI from config).
             scopes: List of OAuth scopes to request (defaults to Gmail scopes).
         """
-        self.client_id = client_id or OAUTH_CLIENT_ID
-        self.client_secret = client_secret or OAUTH_CLIENT_SECRET
-        self.redirect_uri = redirect_uri
+        # Use Gmail credentials from root config if not provided
+        if client_id is None or client_secret is None:
+            client_id = client_id or config.GMAIL_CLIENT_ID
+            client_secret = client_secret or config.GMAIL_CLIENT_SECRET
+        
+        self.client_id = client_id
+        self.client_secret = client_secret
+        self.redirect_uri = redirect_uri or OAUTH_REDIRECT_URI
         self.scopes = scopes or self.DEFAULT_SCOPES
         
         if not self.client_id or not self.client_secret:
-            raise ValueError("OAuth client ID and secret must be provided")
+            raise ValueError("OAuth client ID and secret must be provided. Set GMAIL_CLIENT_ID and GMAIL_CLIENT_SECRET in your .env file.")
     
     def get_authorization_url(self, state: str) -> str:
         """

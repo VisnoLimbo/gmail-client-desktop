@@ -38,15 +38,22 @@ class SyncManager:
         self._lock = threading.Lock()  # For thread-safety
         self._sync_in_progress = False
     
-    def initial_sync(self, inbox_limit: int = 100) -> List[Folder]:
+    def initial_sync(
+        self, 
+        inbox_limit: int = 100,
+        folder_limit: int = 50,
+        progress_callback: Optional[Callable[[str, int, int], None]] = None
+    ) -> List[Folder]:
         """
         Perform initial synchronization.
         
-        Fetches all folders from the server and the latest N messages
-        for the Inbox folder.
+        Fetches all folders from the server and syncs messages for each folder.
         
         Args:
             inbox_limit: Maximum number of messages to fetch for Inbox.
+            folder_limit: Maximum number of messages to fetch for other folders.
+            progress_callback: Optional callback for progress updates.
+                             Signature: callback(folder_name: str, synced_count: int, total_folders: int) -> None
             
         Returns:
             List of Folder objects that were synced.
@@ -71,26 +78,41 @@ class SyncManager:
                 cached_folder = cache_repo.upsert_folder(folder)
                 synced_folders.append(cached_folder)
             
-            # Find Inbox folder and sync it
-            inbox_folder = None
-            for folder in synced_folders:
-                if folder.is_system_folder and (
-                    folder.server_path.upper() == 'INBOX' or
-                    folder.name.upper() == 'INBOX'
-                ):
-                    inbox_folder = folder
-                    break
+            total_folders = len(synced_folders)
             
-            # If no explicit Inbox found, try to find the first system folder
-            if not inbox_folder:
-                for folder in synced_folders:
-                    if folder.is_system_folder:
-                        inbox_folder = folder
-                        break
+            # Sync all folders (prioritize Inbox first)
+            # Sort folders: Inbox first, then system folders, then others
+            def folder_priority(folder):
+                if folder.server_path.upper() == 'INBOX' or folder.name.upper() == 'INBOX':
+                    return 0
+                elif folder.is_system_folder:
+                    return 1
+                else:
+                    return 2
             
-            # Sync Inbox if found (use internal method to avoid double lock)
-            if inbox_folder:
-                self._sync_folder_internal(inbox_folder, limit=inbox_limit)
+            synced_folders.sort(key=folder_priority)
+            
+            # Sync each folder
+            for idx, folder in enumerate(synced_folders):
+                try:
+                    # Determine limit based on folder type
+                    limit = inbox_limit if (
+                        folder.server_path.upper() == 'INBOX' or 
+                        folder.name.upper() == 'INBOX'
+                    ) else folder_limit
+                    
+                    # Sync the folder
+                    synced_count = self._sync_folder_internal(folder, limit=limit)
+                    
+                    # Report progress
+                    if progress_callback:
+                        progress_callback(folder.name, synced_count, total_folders)
+                except Exception as e:
+                    # Log error but continue with other folders
+                    print(f"Error syncing folder {folder.name}: {e}")
+                    if progress_callback:
+                        progress_callback(folder.name, 0, total_folders)
+                    continue
             
             return synced_folders
         finally:
@@ -161,7 +183,10 @@ class SyncManager:
         cached_by_uid = {msg.uid_on_server: msg for msg in cached_messages}
         
         # Upsert remote messages (insert new, update existing)
+        # Batch process: prepare all messages first, then upsert in a single transaction
         synced_count = 0
+        messages_to_upsert = []
+        
         for remote_msg in remote_messages:
             # Set account and folder IDs
             remote_msg.account_id = self.account.id or 0
@@ -173,8 +198,11 @@ class SyncManager:
                 cached_msg = cached_by_uid[remote_msg.uid_on_server]
                 remote_msg.id = cached_msg.id
             
-            # Upsert the message header
-            cache_repo.upsert_email_header(remote_msg)
+            messages_to_upsert.append(remote_msg)
+        
+        # Upsert all messages (database will handle transaction)
+        for msg in messages_to_upsert:
+            cache_repo.upsert_email_header(msg)
             synced_count += 1
         
         # Mark deleted messages (in cache but not on server)

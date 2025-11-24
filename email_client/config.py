@@ -13,10 +13,8 @@ from typing import Optional
 DEFAULT_IMAP_PORT: int = 993
 DEFAULT_SMTP_PORT: int = 587
 
-# OAuth configuration (read from environment)
-OAUTH_CLIENT_ID: Optional[str] = None
-OAUTH_CLIENT_SECRET: Optional[str] = None
-
+# OAuth redirect URI (read from environment, with default)
+OAUTH_REDIRECT_URI: str = "http://localhost:8080/callback"
 # Database configuration
 SQLITE_DB_PATH: Path = Path.home() / ".email_client" / "email_client.db"
 
@@ -29,14 +27,18 @@ def load_env() -> None:
     """
     Load environment variables and apply sensible defaults.
     
-    This function reads OAuth credentials from environment variables
+    This function reads OAuth redirect URI from environment variables
     and sets up default paths. It should be called at application startup.
-    """
-    global OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET, SQLITE_DB_PATH
     
-    # Load OAuth credentials from environment
-    OAUTH_CLIENT_ID = os.environ.get("OAUTH_CLIENT_ID")
-    OAUTH_CLIENT_SECRET = os.environ.get("OAUTH_CLIENT_SECRET")
+    Note: OAuth client credentials (GMAIL_CLIENT_ID, OUTLOOK_CLIENT_ID, etc.)
+    are loaded from the root config.py module.
+    """
+    global OAUTH_REDIRECT_URI, SQLITE_DB_PATH
+    
+    # Load OAuth redirect URI from environment (if provided)
+    oauth_redirect_uri = os.environ.get("OAUTH_REDIRECT_URI")
+    if oauth_redirect_uri:
+        OAUTH_REDIRECT_URI = oauth_redirect_uri
     
     # Allow override of database path via environment variable
     db_path_env = os.environ.get("SQLITE_DB_PATH")

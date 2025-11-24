@@ -50,16 +50,18 @@ class SmtpClient:
     for composing and sending emails with attachments.
     """
     
-    def __init__(self, account: EmailAccount, token_bundle: Optional[TokenBundle] = None):
+    def __init__(self, account: EmailAccount, token_bundle: Optional[TokenBundle] = None, password: Optional[str] = None):
         """
         Initialize the SMTP client.
         
         Args:
             account: The email account configuration.
             token_bundle: Optional OAuth token bundle for XOAUTH2 authentication.
+            password: Optional password for password-based authentication.
         """
         self.account = account
         self.token_bundle = token_bundle
+        self.password = password
         self.connection: Optional[smtplib.SMTP] = None
         self._authenticated = False
     
@@ -136,10 +138,20 @@ class SmtpClient:
             
             # Authenticate
             if self.token_bundle:
+                # Use XOAUTH2 authentication for OAuth accounts
                 self._authenticate_xoauth2(self.connection)
+            elif self.password:
+                # Use password-based authentication
+                try:
+                    self.connection.login(self.account.email_address, self.password)
+                    self._authenticated = True
+                    logger.info("Password-based SMTP authentication successful")
+                except smtplib.SMTPAuthenticationError as e:
+                    raise SmtpAuthenticationError(f"SMTP password authentication failed: {str(e)}")
             else:
+                # No authentication method provided
                 raise SmtpAuthenticationError(
-                    "No token bundle provided. XOAUTH2 authentication required."
+                    "No authentication method provided. Either token_bundle (for OAuth) or password (for password-based) is required."
                 )
             
             logger.info("SMTP connection established and authenticated")

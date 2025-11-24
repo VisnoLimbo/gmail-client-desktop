@@ -273,17 +273,14 @@ OAuth2 credentials are required for Gmail and Outlook authentication. You can sk
      - Add scopes: `https://www.googleapis.com/auth/gmail.readonly`, `https://www.googleapis.com/auth/gmail.send`, `https://www.googleapis.com/auth/gmail.modify`
      - Add test users (your email address)
      - Save and continue
-   - Application type: **Desktop app**
+   - **Application type: Web application** (required because the app uses a redirect URI callback)
    - Name: "Email Desktop Client" (or any name)
+   - **Authorized redirect URIs:** Add `http://localhost:8080/callback`
    - Click "Create"
 
 5. **Copy Credentials:**
    - Copy the "Client ID" and "Client secret"
    - Keep these secure (don't share publicly)
-
-6. **Set Redirect URI:**
-   - In the OAuth client settings, add authorized redirect URI: `http://localhost:8080/callback`
-   - Save changes
 
 ### Outlook OAuth2 Setup
 
@@ -332,12 +329,12 @@ OAuth2 credentials are required for Gmail and Outlook authentication. You can sk
 
    ```env
    # Gmail OAuth2 (if using Gmail)
-   OAUTH_CLIENT_ID=your_gmail_client_id_here
-   OAUTH_CLIENT_SECRET=your_gmail_client_secret_here
+   GMAIL_CLIENT_ID=your_gmail_client_id_here
+   GMAIL_CLIENT_SECRET=your_gmail_client_secret_here
 
-   # Or for Outlook:
-   # OAUTH_CLIENT_ID=your_outlook_client_id_here
-   # OAUTH_CLIENT_SECRET=your_outlook_client_secret_here
+   # Outlook OAuth2 (if using Outlook)
+   OUTLOOK_CLIENT_ID=your_outlook_client_id_here
+   OUTLOOK_CLIENT_SECRET=your_outlook_client_secret_here
    ```
 
    Replace the placeholder values with your actual credentials.

@@ -218,21 +218,26 @@ class Sidebar(QWidget):
     
     def add_folder(self, folder: Folder):
         """Add a folder to the sidebar"""
-        self.folders[folder.folder_id] = folder
+        folder_id = folder.id or 0
+        self.folders[folder_id] = folder
         
         item = QListWidgetItem()
         item.setText(folder.name)
-        item.setData(Qt.UserRole, folder.folder_id)
+        item.setData(Qt.UserRole, folder_id)
         
-        # Set icon based on folder type
-        if folder.folder_type == 'inbox':
-            item.setText(f"📥 {folder.name}")
-        elif folder.folder_type == 'sent':
-            item.setText(f"📤 {folder.name}")
-        elif folder.folder_type == 'drafts':
-            item.setText(f"📝 {folder.name}")
-        elif folder.folder_type == 'trash':
-            item.setText(f"🗑 {folder.name}")
+        # Set icon based on folder type (check server_path and is_system_folder)
+        server_path_upper = folder.server_path.upper() if folder.server_path else ""
+        if folder.is_system_folder:
+            if 'INBOX' in server_path_upper or server_path_upper == 'INBOX':
+                item.setText(f"📥 {folder.name}")
+            elif 'SENT' in server_path_upper:
+                item.setText(f"📤 {folder.name}")
+            elif 'DRAFT' in server_path_upper:
+                item.setText(f"📝 {folder.name}")
+            elif 'TRASH' in server_path_upper or 'DELETED' in server_path_upper:
+                item.setText(f"🗑 {folder.name}")
+            else:
+                item.setText(f"📁 {folder.name}")
         else:
             item.setText(f"📁 {folder.name}")
         

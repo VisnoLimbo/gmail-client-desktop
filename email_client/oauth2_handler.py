@@ -88,9 +88,13 @@ class OAuth2Handler:
             
             # Exchange code for token
             try:
-                print(f"Exchanging authorization code for token...")
+                print(f"Exchanging authorization code for token (this may take a few seconds)...")
+                # The fetch_token call makes an HTTP request to Google's token endpoint
+                # This should complete quickly (< 5 seconds) but we'll let it run
+                # Since we're in a background thread, this won't block the UI
                 flow.fetch_token(code=self._code)
                 credentials = flow.credentials
+                print(f"Token exchange completed successfully")
                 
                 if not credentials or not credentials.token:
                     print("Token exchange failed: No credentials returned")
@@ -265,10 +269,13 @@ class OAuth2Handler:
                     # Extract code
                     if 'code' in params:
                         code = params['code'][0]
-                        print(f"OAuth code received: {code[:20]}...")
-                        self.oauth_handler._code = code
+                        print(f"OAuth callback: Code received in callback handler: {code[:20]}...")
                         
-                        # Send success response
+                        # Set the code FIRST - this is what the waiting thread checks
+                        self.oauth_handler._code = code
+                        print(f"OAuth callback: Code has been set, waiting thread should detect it now")
+                        
+                        # Send success response IMMEDIATELY
                         self.send_response(200)
                         self.send_header('Content-type', 'text/html')
                         self.end_headers()
@@ -281,7 +288,7 @@ class OAuth2Handler:
                         )
                         self.wfile.write(success_html)
                         self.wfile.flush()
-                        print("Success response sent to browser")
+                        print("OAuth callback: Success response sent to browser, connection closed")
                     else:
                         # No code, no error - might be a redirect issue
                         print("Callback received but no code or error found")
@@ -328,9 +335,16 @@ class OAuth2Handler:
     def _wait_for_callback(self, timeout: int = 300):
         """Wait for OAuth callback with proper timeout and error handling"""
         import time
+        import threading
         start_time = time.time()
         
         print(f"Waiting for OAuth callback (timeout: {timeout}s)...")
+        
+        # Use a threading event to ensure proper synchronization
+        callback_received = threading.Event()
+        
+        # Check more frequently for the code
+        check_interval = 0.05  # Check every 50ms instead of 100ms
         
         while (time.time() - start_time) < timeout:
             # Check for error first (user cancellation, etc.)
@@ -338,9 +352,9 @@ class OAuth2Handler:
                 print(f"OAuth error received: {self._error}")
                 return False
             
-            # Check if we got the code
+            # Check if we got the code (check FIRST before handling requests)
             if self._code:
-                print(f"OAuth callback received successfully")
+                print(f"OAuth callback received successfully - code detected")
                 return True
             
             # Handle one request (non-blocking with timeout)
@@ -352,14 +366,19 @@ class OAuth2Handler:
                 if "timed out" not in str(e).lower() and "Address already in use" not in str(e):
                     print(f"Error handling callback request: {e}")
             
-            # Small sleep to prevent CPU spinning
-            time.sleep(0.1)
+            # Check again immediately after handling request (code might have been set)
+            if self._code:
+                print(f"OAuth callback received successfully - code detected after request")
+                return True
+            
+            # Smaller sleep to check more frequently
+            time.sleep(check_interval)
         
         # Timeout reached
         if not self._code:
             if not hasattr(self, '_error') or not self._error:
                 self._error = "Authentication timeout. Please try again."
-            print("OAuth callback timeout")
+            print(f"OAuth callback timeout after {timeout}s - no code received")
             return False
         
         return True

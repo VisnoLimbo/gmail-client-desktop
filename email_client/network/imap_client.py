@@ -45,16 +45,18 @@ class ImapClient:
     for common IMAP operations.
     """
     
-    def __init__(self, account: EmailAccount, token_bundle: Optional[TokenBundle] = None):
+    def __init__(self, account: EmailAccount, token_bundle: Optional[TokenBundle] = None, password: Optional[str] = None):
         """
         Initialize the IMAP client.
         
         Args:
             account: The email account configuration.
             token_bundle: Optional OAuth token bundle for XOAUTH2 authentication.
+            password: Optional password for password-based authentication.
         """
         self.account = account
         self.token_bundle = token_bundle
+        self.password = password
         self.connection: Optional[imaplib.IMAP4_SSL] = None
         self._authenticated = False
     
@@ -87,17 +89,25 @@ class ImapClient:
             
             # Authenticate
             if self.token_bundle:
-                # Use XOAUTH2 authentication
+                # Use XOAUTH2 authentication for OAuth accounts
                 xoauth2_string = self._build_xoauth2_string()
                 result, data = self.connection.authenticate('XOAUTH2', lambda x: xoauth2_string)
                 if result != 'OK':
                     raise ImapAuthenticationError(
                         f"XOAUTH2 authentication failed: {data[0].decode('utf-8') if data else 'Unknown error'}"
                     )
+            elif self.password:
+                # Use password-based authentication
+                result, data = self.connection.login(self.account.email_address, self.password)
+                if result != 'OK':
+                    error_msg = data[0].decode('utf-8') if data and data[0] else 'Unknown error'
+                    raise ImapAuthenticationError(
+                        f"Password authentication failed: {error_msg}"
+                    )
             else:
-                # Fallback: password-based authentication (not recommended for OAuth accounts)
+                # No authentication method provided
                 raise ImapAuthenticationError(
-                    "No token bundle provided. XOAUTH2 authentication required."
+                    "No authentication method provided. Either token_bundle (for OAuth) or password (for password-based) is required."
                 )
             
             self._authenticated = True
@@ -112,6 +122,42 @@ class ImapClient:
         """Ensure connection is established."""
         if not self._authenticated or not self.connection:
             self._connect()
+    
+    def _quote_folder_name(self, folder_path: str) -> str:
+        """
+        Quote IMAP folder name if it contains spaces or special characters.
+        
+        IMAP requires folder names with spaces or special characters to be quoted.
+        For example: "Sent Mail" -> '"Sent Mail"', "[Gmail]/All Mail" -> '"[Gmail]/All Mail"'
+        
+        Args:
+            folder_path: The folder path to quote.
+            
+        Returns:
+            The quoted folder path if needed, or the original path.
+        """
+        if not folder_path:
+            return folder_path
+        
+        # If already quoted, return as is
+        if folder_path.startswith('"') and folder_path.endswith('"'):
+            return folder_path
+        
+        # Check if folder name needs quoting (contains spaces or special characters)
+        # Simple folders like "INBOX" don't need quoting
+        needs_quoting = (
+            ' ' in folder_path or
+            '[' in folder_path or
+            ']' in folder_path or
+            '/' in folder_path and not folder_path.startswith('"')
+        )
+        
+        if needs_quoting:
+            # Escape any existing quotes and wrap in quotes
+            escaped = folder_path.replace('"', '\\"')
+            return f'"{escaped}"'
+        
+        return folder_path
     
     def __enter__(self):
         """Context manager entry."""
@@ -254,8 +300,9 @@ class ImapClient:
         self._ensure_connected()
         
         try:
-            # Select the folder
-            result, data = self.connection.select(folder.server_path)
+            # Select the folder (quote folder name if it contains spaces or special characters)
+            folder_path = self._quote_folder_name(folder.server_path)
+            result, data = self.connection.select(folder_path)
             if result != 'OK':
                 raise ImapOperationError(f"Failed to select folder '{folder.server_path}': {result}")
             
@@ -275,22 +322,172 @@ class ImapClient:
             # Get the most recent messages (limit)
             uid_list = uid_list[-limit:] if len(uid_list) > limit else uid_list
             
-            # Fetch headers and flags for these UIDs
-            messages = []
-            for uid_str in reversed(uid_list):  # Most recent first
-                try:
-                    uid = int(uid_str)
-                    message = self._fetch_message_headers(uid, folder)
-                    if message:
-                        messages.append(message)
-                except (ValueError, Exception) as e:
-                    continue  # Skip invalid UIDs
+            if not uid_list:
+                return []
+            
+            # Fetch headers and flags in batch (much faster than individual requests)
+            # IMAP supports fetching multiple messages at once
+            messages = self._fetch_message_headers_batch(uid_list, folder)
+            
+            # Reverse to get most recent first
+            messages.reverse()
             
             return messages
         except ImapOperationError:
             raise
         except Exception as e:
             raise ImapOperationError(f"Error fetching headers: {str(e)}")
+    
+    def _fetch_message_headers_batch(self, uid_list: List[str], folder: Folder) -> List[EmailMessage]:
+        """
+        Fetch headers and flags for multiple messages in a single IMAP request.
+        
+        This is much faster than fetching messages one by one.
+        
+        Args:
+            uid_list: List of UID strings to fetch.
+            folder: The folder containing the messages.
+            
+        Returns:
+            List of EmailMessage objects.
+        """
+        messages = []
+        
+        if not uid_list:
+            return messages
+        
+        try:
+            # Build UID range string for batch fetch
+            # Format: "1,2,3" or "1:100" for ranges
+            # For simplicity, we'll use comma-separated list
+            uid_range = ','.join(uid_list)
+            
+            # Fetch headers and flags for all UIDs in one request
+            result, data = self.connection.uid('fetch', uid_range, '(RFC822.HEADER FLAGS)')
+            
+            if result != 'OK':
+                # If batch fetch fails, fall back to individual fetches
+                print(f"Batch fetch failed with result: {result}, falling back to individual fetches")
+                return self._fallback_individual_fetch(uid_list, folder)
+            
+            if not data:
+                return messages
+            
+            # Parse all responses
+            # IMAP can return data in different formats:
+            # - List of tuples: [(b'1 (UID 123 FLAGS (\\Seen) RFC822.HEADER {1234}', b'headers...'), ...]
+            # - List of bytes: [b'1 (UID 123 ...', b'headers...', b'2 (UID 124 ...', ...]
+            # - Mixed format
+            
+            # Handle case where data is a list of tuples
+            response_items = []
+            if data and isinstance(data[0], tuple):
+                response_items = data
+            elif data:
+                # Try to parse as alternating format
+                # Sometimes IMAP returns: [b'1 (UID ...', b'headers', b'2 (UID ...', b'headers', ...]
+                i = 0
+                while i < len(data) - 1:
+                    if isinstance(data[i], bytes) and isinstance(data[i+1], bytes):
+                        response_items.append((data[i], data[i+1]))
+                        i += 2
+                    else:
+                        i += 1
+            
+            for response_item in response_items:
+                if not isinstance(response_item, tuple) or len(response_item) < 2:
+                    continue
+                
+                try:
+                    # Extract UID from first part (e.g., "1 (UID 123 FLAGS (\\Seen) RFC822.HEADER {1234}")
+                    flags_str = str(response_item[0])
+                    
+                    # Extract UID from the response
+                    uid_match = re.search(r'UID\s+(\d+)', flags_str)
+                    if not uid_match:
+                        continue
+                    
+                    uid = int(uid_match.group(1))
+                    
+                    # Extract flags
+                    flags = self._parse_flags(flags_str)
+                    
+                    # Extract headers from second part
+                    headers_bytes = response_item[1]
+                    if not isinstance(headers_bytes, bytes):
+                        continue
+                    
+                    # Parse email headers
+                    msg = email.message_from_bytes(headers_bytes)
+                    
+                    # Extract metadata
+                    subject = self._decode_header(msg.get('Subject', ''))
+                    sender = self._decode_header(msg.get('From', ''))
+                    recipients_str = self._decode_header(msg.get('To', ''))
+                    
+                    # Parse sender
+                    sender_name, sender_email = parseaddr(sender)
+                    if not sender_email:
+                        sender_email = sender
+                    
+                    # Parse recipients
+                    recipients = []
+                    if recipients_str:
+                        for addr in recipients_str.split(','):
+                            _, email_addr = parseaddr(addr.strip())
+                            if email_addr:
+                                recipients.append(email_addr)
+                    
+                    # Parse dates
+                    sent_at = self._parse_date(msg.get('Date'))
+                    received_at = sent_at
+                    
+                    # Extract preview text (first line of body, but we only have headers)
+                    preview_text = ""
+                    
+                    # Check for attachments
+                    has_attachments = 'Content-Disposition' in msg or 'attachment' in str(msg.get('Content-Type', '')).lower()
+                    
+                    # Determine if read
+                    is_read = '\\Seen' in flags
+                    
+                    message = EmailMessage(
+                        account_id=self.account.id or 0,
+                        folder_id=folder.id or 0,
+                        uid_on_server=uid,
+                        sender=sender_email,
+                        recipients=recipients,
+                        subject=subject,
+                        preview_text=preview_text,
+                        sent_at=sent_at,
+                        received_at=received_at,
+                        is_read=is_read,
+                        has_attachments=has_attachments,
+                        flags=flags,
+                    )
+                    messages.append(message)
+                except Exception as e:
+                    # Skip messages that can't be parsed
+                    continue
+            
+            return messages
+        except Exception as e:
+            # If batch fetch fails, fall back to individual fetches
+            print(f"Batch fetch exception: {e}, falling back to individual fetches")
+            return self._fallback_individual_fetch(uid_list, folder)
+    
+    def _fallback_individual_fetch(self, uid_list: List[str], folder: Folder) -> List[EmailMessage]:
+        """Fallback to individual fetches if batch fetch fails"""
+        messages = []
+        for uid_str in uid_list:
+            try:
+                uid = int(uid_str)
+                message = self._fetch_message_headers(uid, folder)
+                if message:
+                    messages.append(message)
+            except Exception:
+                continue
+        return messages
     
     def _fetch_message_headers(self, uid: int, folder: Folder) -> Optional[EmailMessage]:
         """
@@ -435,8 +632,9 @@ class ImapClient:
         self._ensure_connected()
         
         try:
-            # Select the folder
-            result, data = self.connection.select(folder.server_path)
+            # Select the folder (quote folder name if it contains spaces or special characters)
+            folder_path = self._quote_folder_name(folder.server_path)
+            result, data = self.connection.select(folder_path)
             if result != 'OK':
                 raise ImapOperationError(f"Failed to select folder '{folder.server_path}': {result}")
             
@@ -515,8 +713,9 @@ class ImapClient:
         self._ensure_connected()
         
         try:
-            # Select the folder
-            result, data = self.connection.select(folder.server_path)
+            # Select the folder (quote folder name if it contains spaces or special characters)
+            folder_path = self._quote_folder_name(folder.server_path)
+            result, data = self.connection.select(folder_path)
             if result != 'OK':
                 raise ImapOperationError(f"Failed to select folder '{folder.server_path}': {result}")
             
@@ -549,13 +748,15 @@ class ImapClient:
         self._ensure_connected()
         
         try:
-            # Select the source folder
-            result, data = self.connection.select(src.server_path)
+            # Select the source folder (quote folder name if it contains spaces or special characters)
+            src_path = self._quote_folder_name(src.server_path)
+            result, data = self.connection.select(src_path)
             if result != 'OK':
                 raise ImapOperationError(f"Failed to select source folder '{src.server_path}': {result}")
             
-            # Copy the message to destination
-            result, data = self.connection.uid('copy', message_uid, dest.server_path)
+            # Copy the message to destination (quote destination folder name too)
+            dest_path = self._quote_folder_name(dest.server_path)
+            result, data = self.connection.uid('copy', message_uid, dest_path)
             if result != 'OK':
                 raise ImapOperationError(
                     f"Failed to copy message {message_uid} to '{dest.server_path}': {result}"

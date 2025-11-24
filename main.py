@@ -3,6 +3,7 @@ Main application entry point
 """
 import sys
 import os
+import signal
 from pathlib import Path
 from PyQt5.QtWidgets import QApplication, QMessageBox
 from PyQt5.QtCore import Qt
@@ -78,11 +79,32 @@ def main():
     app.setApplicationName("Email Desktop Client")
     app.setOrganizationName("EmailDesktopClient")
     
+    # Handle SIGINT (Ctrl+C) gracefully on Unix-like systems
+    def signal_handler(signum, frame):
+        """Handle interrupt signal gracefully"""
+        print("\nReceived interrupt signal, shutting down gracefully...")
+        # Close the main window, which will trigger closeEvent
+        if 'window' in locals():
+            window.close()
+        app.quit()
+    
+    # Only set signal handler on Unix-like systems (not Windows)
+    if hasattr(signal, 'SIGINT'):
+        signal.signal(signal.SIGINT, signal_handler)
+    
     # Create and show main window
     window = MainWindow()
     window.show()
     
-    sys.exit(app.exec_())
+    # Run the application event loop
+    try:
+        sys.exit(app.exec_())
+    except KeyboardInterrupt:
+        # Handle keyboard interrupt if it somehow gets through
+        print("\nReceived keyboard interrupt, shutting down gracefully...")
+        window.close()
+        app.quit()
+        sys.exit(0)
 
 
 if __name__ == "__main__":

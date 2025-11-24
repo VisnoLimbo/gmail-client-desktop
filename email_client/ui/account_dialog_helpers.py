@@ -14,6 +14,7 @@ from email_client.auth.accounts import (
 )
 from email_client.auth.oauth import OAuthProvider, GoogleOAuthProvider, OAuthError
 from email_client.auth.oauth import TokenBundle
+import config as root_config
 
 
 def get_account_dialog_callables() -> dict:
@@ -57,7 +58,11 @@ def get_account_dialog_callables() -> dict:
         provider_name_lower = provider_name.lower()
         
         if provider_name_lower in ['gmail', 'google']:
-            return GoogleOAuthProvider()
+            # Use Gmail credentials from root config
+            return GoogleOAuthProvider(
+                client_id=root_config.GMAIL_CLIENT_ID,
+                client_secret=root_config.GMAIL_CLIENT_SECRET
+            )
         elif provider_name_lower in ['outlook', 'microsoft']:
             # TODO: Implement OutlookOAuthProvider when available
             raise ValueError(f"OAuth provider for '{provider_name}' not yet implemented")

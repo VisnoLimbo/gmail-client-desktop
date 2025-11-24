@@ -1,19 +1,19 @@
 """
 Concrete controller implementations using the core layer.
 """
-from typing import List, Optional
+from typing import List, Optional, Callable
 from email_client.models import EmailAccount, Folder, EmailMessage
 from email_client.ui.controllers import (
     AccountController, FolderController, MessageController, SyncController
 )
 from email_client.auth.accounts import (
-    list_accounts, get_default_account, set_default_account
+    list_accounts, get_default_account, set_default_account,
+    get_token_bundle, get_password
 )
 from email_client.storage import cache_repo
 from email_client.core.search import search_emails
 from email_client.core.sync_manager import SyncManager
 from email_client.network.imap_client import ImapClient
-from email_client.auth.accounts import get_token_bundle
 
 
 class AccountControllerImpl(AccountController):
@@ -42,11 +42,7 @@ class FolderControllerImpl(FolderController):
     
     def get_folder(self, folder_id: int) -> Optional[Folder]:
         """Get a folder by ID."""
-        folders = cache_repo.list_folders(0)  # Get all folders
-        for folder in folders:
-            if folder.id == folder_id:
-                return folder
-        return None
+        return cache_repo.get_folder(folder_id)
 
 
 class MessageControllerImpl(MessageController):
@@ -87,16 +83,24 @@ class SyncControllerImpl(SyncController):
     def _get_sync_manager(self, account: EmailAccount) -> SyncManager:
         """Get or create a sync manager for an account."""
         if account.id not in self._sync_managers:
-            # Get token bundle for the account
+            # Get authentication credentials based on account type
             token_bundle = None
-            if account.id:
-                try:
-                    token_bundle = get_token_bundle(account.id)
-                except Exception:
-                    pass  # No token bundle available
+            password = None
             
-            # Create IMAP client
-            imap_client = ImapClient(account, token_bundle)
+            if account.id:
+                if account.auth_type == "oauth":
+                    try:
+                        token_bundle = get_token_bundle(account.id)
+                    except Exception:
+                        pass  # No token bundle available
+                if account.auth_type == "password":
+                    try:
+                        password = get_password(account.id)
+                    except Exception:
+                        pass  # No password available    
+            
+            # Create IMAP client with appropriate authentication
+            imap_client = ImapClient(account, token_bundle=token_bundle, password=password)
             
             # Create sync manager
             self._sync_managers[account.id] = SyncManager(account, imap_client)
@@ -119,8 +123,18 @@ class SyncControllerImpl(SyncController):
         sync_manager = self._get_sync_manager(account)
         return sync_manager.sync_folder(folder, limit=limit)
     
-    def initial_sync(self, account: EmailAccount, inbox_limit: int = 100) -> List[Folder]:
+    def initial_sync(
+        self, 
+        account: EmailAccount, 
+        inbox_limit: int = 100,
+        folder_limit: int = 50,
+        progress_callback: Optional[Callable[[str, int, int], None]] = None
+    ) -> List[Folder]:
         """Perform initial synchronization for an account."""
         sync_manager = self._get_sync_manager(account)
-        return sync_manager.initial_sync(inbox_limit=inbox_limit)
+        return sync_manager.initial_sync(
+            inbox_limit=inbox_limit,
+            folder_limit=folder_limit,
+            progress_callback=progress_callback
+        )
 

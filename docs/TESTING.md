@@ -102,8 +102,14 @@ Create a `.env.test` file for test-specific configuration:
 
 ```env
 # .env.test
-OAUTH_CLIENT_ID=test_client_id
-OAUTH_CLIENT_SECRET=test_client_secret
+# Gmail OAuth credentials for testing
+GMAIL_CLIENT_ID=test_gmail_client_id
+GMAIL_CLIENT_SECRET=test_gmail_client_secret
+
+# Outlook OAuth credentials for testing (optional)
+OUTLOOK_CLIENT_ID=test_outlook_client_id
+OUTLOOK_CLIENT_SECRET=test_outlook_client_secret
+
 SQLITE_DB_PATH=/tmp/test_email_client.db
 ```
 
