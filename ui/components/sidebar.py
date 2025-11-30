@@ -267,7 +267,8 @@ class Sidebar(QWidget):
         self.accounts[account_id] = account
         
         item = QListWidgetItem()
-        display_text = account.display_name or account.email_address
+        # Show email address instead of display name
+        display_text = account.email_address or 'Unknown'
         item.setText(f"👤 {display_text}")
         item.setData(Qt.UserRole, account_id)
         self.account_list.addItem(item)
