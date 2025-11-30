@@ -1162,7 +1162,31 @@ class MainWindow(QMainWindow):
         self.status_bar.showMessage(f"Found {total_count} results")
     
     def on_account_filter_changed(self, index: int):
-        """Handle account filter change"""
+        """Handle account filter change - switch between accounts"""
+        if index == 0:
+            # "All Accounts" selected - show all emails from all accounts
+            self.current_account_id = None
+            # Clear folder selection and show all folders
+            folders = []
+            accounts = self.account_controller.list_accounts()
+            for account in accounts:
+                account_folders = self.folder_controller.list_folders(account.id)
+                folders.extend(account_folders)
+            self.sidebar.set_folders(folders)
+            # Clear email list
+            self.email_list.set_emails([], total_count=0, current_page=0, folder_id=None)
+        else:
+            # Specific account selected
+            account_id = self.account_filter.currentData()
+            if account_id:
+                self.current_account_id = account_id
+                # Load folders for this account
+                folders = self.folder_controller.list_folders(account_id)
+                self.sidebar.set_folders(folders)
+                # Clear current folder selection and email list
+                self.current_folder_id = None
+                self.email_list.set_emails([], total_count=0, current_page=0, folder_id=None)
+        
         # If searching, re-run search
         if self.search_input.text().strip():
             self.on_search()
