@@ -16,11 +16,17 @@ class EmailList(QWidget):
     
     email_selected = pyqtSignal(int)  # email_id
     refresh_requested = pyqtSignal()
+    page_changed = pyqtSignal(int)  # page number (0-based)
+    
+    PAGE_SIZE = 50  # Fixed page size
     
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setup_ui()
         self.emails = {}  # email_id -> Email
+        self.current_page = 0
+        self.total_count = 0
+        self.folder_id = None
     
     def setup_ui(self):
         """Setup the UI"""
@@ -105,6 +111,26 @@ class EmailList(QWidget):
         
         layout.addLayout(filter_layout)
         
+        # Pagination controls
+        pagination_layout = QHBoxLayout()
+        pagination_layout.setSpacing(8)
+        
+        self.prev_btn = QPushButton("◀ Previous")
+        self.prev_btn.clicked.connect(self.go_to_previous_page)
+        self.prev_btn.setEnabled(False)
+        pagination_layout.addWidget(self.prev_btn)
+        
+        self.page_info_label = QLabel("Page 1 of 1")
+        self.page_info_label.setAlignment(Qt.AlignCenter)
+        pagination_layout.addWidget(self.page_info_label, 1)
+        
+        self.next_btn = QPushButton("Next ▶")
+        self.next_btn.clicked.connect(self.go_to_next_page)
+        self.next_btn.setEnabled(False)
+        pagination_layout.addWidget(self.next_btn)
+        
+        layout.addLayout(pagination_layout)
+        
         # Email table
         self.email_table = QTableWidget()
         self.email_table.setColumnCount(4)
@@ -163,10 +189,15 @@ class EmailList(QWidget):
         layout.addWidget(self.email_table)
         self.setLayout(layout)
     
-    def set_emails(self, emails: list[EmailMessage]):
-        """Set emails to display"""
+    def set_emails(self, emails: list[EmailMessage], total_count: int = 0, current_page: int = 0, folder_id: int = None):
+        """Set emails to display with pagination info"""
         self.emails = {email.id: email for email in emails}
+        self.total_count = total_count
+        self.current_page = current_page
+        if folder_id is not None:
+            self.folder_id = folder_id
         self.update_table()
+        self.update_pagination_controls()
     
     def add_email(self, email: EmailMessage):
         """Add a single email to the list"""
@@ -272,4 +303,34 @@ class EmailList(QWidget):
             if item:
                 return item.data(Qt.UserRole)
         return None
+    
+    def update_pagination_controls(self):
+        """Update pagination button states and page info"""
+        total_pages = (self.total_count + self.PAGE_SIZE - 1) // self.PAGE_SIZE if self.total_count > 0 else 1
+        current_page_num = self.current_page + 1  # Display as 1-based
+        
+        # Update page info
+        if self.total_count > 0:
+            start = self.current_page * self.PAGE_SIZE + 1
+            end = min((self.current_page + 1) * self.PAGE_SIZE, self.total_count)
+            self.page_info_label.setText(f"Page {current_page_num} of {total_pages} ({start}-{end} of {self.total_count})")
+        else:
+            self.page_info_label.setText("No emails")
+        
+        # Update button states
+        self.prev_btn.setEnabled(self.current_page > 0)
+        self.next_btn.setEnabled(self.current_page < total_pages - 1)
+    
+    def go_to_previous_page(self):
+        """Navigate to previous page"""
+        if self.current_page > 0:
+            self.current_page -= 1
+            self.page_changed.emit(self.current_page)
+    
+    def go_to_next_page(self):
+        """Navigate to next page"""
+        total_pages = (self.total_count + self.PAGE_SIZE - 1) // self.PAGE_SIZE if self.total_count > 0 else 1
+        if self.current_page < total_pages - 1:
+            self.current_page += 1
+            self.page_changed.emit(self.current_page)
 

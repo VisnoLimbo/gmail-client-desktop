@@ -254,7 +254,9 @@ class MainWindow(QMainWindow):
         self.email_list = EmailList()
         self.email_list.email_selected.connect(self.on_email_selected)
         self.email_list.refresh_requested.connect(self.on_refresh_clicked)
+        self.email_list.page_changed.connect(self.on_email_page_changed)
         self.right_stack.addWidget(self.email_list)  # Index 0
+        self.current_folder_id = None  # Track current folder for pagination
         
         # Email preview
         self.email_preview = EmailPreview()
@@ -391,7 +393,8 @@ class MainWindow(QMainWindow):
             self.account_filter.addItem("All Accounts")
             for account in accounts:
                 if account.id:
-                    self.account_filter.addItem(account.display_name or account.email_address, account.id)
+                    # Show email address instead of display name
+                    self.account_filter.addItem(account.email_address or account.display_name, account.id)
             # Select account - prefer the specified one, otherwise first account
             account_to_select = None
             if select_account_id:
@@ -915,13 +918,18 @@ class MainWindow(QMainWindow):
                     seen_ids.add(email.id)
                     unique_emails.append(email)
             
-            print(f"All Mail: Loaded {len(unique_emails)} unique emails from {len(all_folders)} folders")
-            self.email_list.set_emails(unique_emails)
+            # For "All Mail", pagination is more complex - show all for now
+            # Sort by date (newest first)
+            unique_emails.sort(key=lambda x: x.received_at or x.sent_at or datetime.min, reverse=True)
+            # Take first page (50 emails)
+            page_size = 50
+            total_count = len(unique_emails)
+            page_emails = unique_emails[:page_size]
+            self.email_list.set_emails(page_emails, total_count=total_count, current_page=0, folder_id=folder_id)
         else:
-            # For regular folders, load emails from that folder
-            emails = self.message_controller.list_messages(folder_id, limit=100)
-            print(f"Folder '{folder.name}' (id={folder_id}, account_id={folder.account_id}): Loaded {len(emails)} emails")
-            self.email_list.set_emails(emails)
+            # For regular folders, load emails with pagination (page 0, page size 50)
+            self.current_folder_id = folder_id
+            self.load_folder_emails(folder_id, page=0)
             
             # Sync in background if needed
             accounts = self.account_controller.list_accounts()
@@ -932,6 +940,27 @@ class MainWindow(QMainWindow):
                     break
             if account:
                 self.sync_folder(account, folder)
+    
+    def load_folder_emails(self, folder_id: int, page: int = 0):
+        """Load emails for a folder with pagination"""
+        PAGE_SIZE = 50  # Fixed page size
+        
+        # Get total count
+        total_count = self.message_controller.count_messages(folder_id)
+        
+        # Calculate offset
+        offset = page * PAGE_SIZE
+        
+        # Load emails for this page
+        emails = self.message_controller.list_messages(folder_id, limit=PAGE_SIZE, offset=offset)
+        
+        # Set emails with pagination info
+        self.email_list.set_emails(emails, total_count=total_count, current_page=page, folder_id=folder_id)
+    
+    def on_email_page_changed(self, page: int):
+        """Handle email list page change"""
+        if self.current_folder_id:
+            self.load_folder_emails(self.current_folder_id, page=page)
     
     def sync_folder(self, account: EmailAccount, folder: Folder):
         """Sync emails for a folder using SyncController (runs in background)"""
@@ -1076,11 +1105,12 @@ class MainWindow(QMainWindow):
     
     def _on_sync_complete(self, folder: Folder, synced_count: int):
         """Handle successful folder sync"""
-        self.status_bar.showMessage(f"Synced {synced_count} messages from {folder.name}")
-        # Reload emails
-        if self.current_folder_id:
-            emails = self.message_controller.list_messages(self.current_folder_id, limit=100)
-            self.email_list.set_emails(emails)
+        if synced_count > 0:
+            self.status_bar.showMessage(f"Synced {synced_count} new messages from {folder.name}")
+            # Reload current page to show newly synced messages
+            if self.current_folder_id and self.current_folder_id == folder.id:
+                current_page = self.email_list.current_page
+                self.load_folder_emails(self.current_folder_id, page=current_page)
     
     def _on_sync_error(self, folder: Folder, error: str):
         """Handle folder sync error"""
@@ -1122,8 +1152,13 @@ class MainWindow(QMainWindow):
             folder_id=self.current_folder_id,
             limit=100
         )
-        self.email_list.set_emails(results)
-        self.status_bar.showMessage(f"Found {len(results)} results")
+        # Sort search results by date (newest first) and apply pagination
+        results.sort(key=lambda x: x.received_at or x.sent_at or datetime.min, reverse=True)
+        total_count = len(results)
+        page_size = 50
+        page_results = results[:page_size]
+        self.email_list.set_emails(page_results, total_count=total_count, current_page=0, folder_id=self.current_folder_id)
+        self.status_bar.showMessage(f"Found {total_count} results")
     
     def on_account_filter_changed(self, index: int):
         """Handle account filter change"""
@@ -1157,8 +1192,8 @@ class MainWindow(QMainWindow):
                 compose_window.exec_()
                 # Reload emails after closing compose window (in case draft was deleted/updated)
                 if self.current_folder_id:
-                    emails = self.message_controller.list_messages(self.current_folder_id, limit=100)
-                    self.email_list.set_emails(emails)
+                    current_page = self.email_list.current_page
+                    self.load_folder_emails(self.current_folder_id, page=current_page)
                 return
             
             # Mark as read
@@ -1239,10 +1274,10 @@ class MainWindow(QMainWindow):
             # Delete email from cache
             from email_client.storage import db
             db.execute("DELETE FROM emails WHERE id = ?", (email_id,))
-            # Reload emails
+            # Reload emails with pagination
             if self.current_folder_id:
-                emails = self.message_controller.list_messages(self.current_folder_id, limit=100)
-                self.email_list.set_emails(emails)
+                current_page = self.email_list.current_page
+                self.load_folder_emails(self.current_folder_id, page=current_page)
             # Go back to list view
             self.on_back_to_list()
             self.email_preview.show_empty_state()
@@ -1375,8 +1410,8 @@ class MainWindow(QMainWindow):
             
             # Refresh drafts folder if it's currently selected
             if drafts_folder and self.current_folder_id == drafts_folder.id:
-                emails = self.message_controller.list_messages(drafts_folder.id, limit=100)
-                self.email_list.set_emails(emails)
+                current_page = self.email_list.current_page
+                self.load_folder_emails(drafts_folder.id, page=current_page)
             
         except Exception as e:
             QMessageBox.critical(self, "Error", f"Error saving draft: {str(e)}")
@@ -1459,8 +1494,8 @@ class MainWindow(QMainWindow):
             if self.current_folder_id:
                 folder = self.folder_controller.get_folder(self.current_folder_id)
                 if folder and folder.is_system_folder and (folder.server_path.upper() == 'DRAFTS' or folder.name.upper() == 'DRAFTS'):
-                    emails = self.message_controller.list_messages(self.current_folder_id, limit=100)
-                    self.email_list.set_emails(emails)
+                    current_page = self.email_list.current_page
+                    self.load_folder_emails(self.current_folder_id, page=current_page)
         except Exception as e:
             import traceback
             traceback.print_exc()

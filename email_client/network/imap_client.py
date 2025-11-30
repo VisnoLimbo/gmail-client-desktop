@@ -410,8 +410,15 @@ class ImapClient:
             if not uid_list:
                 return []
             
-            # Get the most recent messages (limit)
-            uid_list = uid_list[-limit:] if len(uid_list) > limit else uid_list
+            # Fetch a large sample of recent UIDs to ensure we get the newest emails
+            # For large mailboxes, we need to fetch enough emails to find the truly newest ones
+            # after sorting by date, since UID order does not necessarily match chronological order
+            # Fetch up to 500-1000 emails, then sort by date and take the top N
+            sample_size = max(limit * 10, 500)  # At least 500 emails, or 10x the limit
+            sample_size = min(sample_size, len(uid_list))  # Don't exceed available emails
+            
+            # Take the most recent UIDs (highest UID numbers, which are usually newer)
+            uid_list = uid_list[-sample_size:] if len(uid_list) > sample_size else uid_list
             
             if not uid_list:
                 return []
@@ -420,10 +427,21 @@ class ImapClient:
             # IMAP supports fetching multiple messages at once
             messages = self._fetch_message_headers_batch(uid_list, folder)
             
-            # Reverse to get most recent first
-            messages.reverse()
+            # Sort by date descending (newest first)
+            # Use received_at if available, otherwise sent_at, otherwise fall back to UID
+            def get_sort_key(msg: EmailMessage):
+                # Primary sort: received_at (or sent_at if received_at is None)
+                date_value = msg.received_at if msg.received_at else msg.sent_at
+                if date_value:
+                    # Return datetime object directly (Python can compare them)
+                    return date_value
+                # Fallback to a very old date if no date (shouldn't happen normally)
+                return datetime.min
             
-            return messages
+            messages.sort(key=get_sort_key, reverse=True)
+            
+            # Return only the requested limit, now properly sorted by date (newest first)
+            return messages[:limit]
         except ImapOperationError:
             raise
         except Exception as e:

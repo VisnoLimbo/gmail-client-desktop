@@ -51,6 +51,11 @@ class MessageController(ABC):
         pass
     
     @abstractmethod
+    def count_messages(self, folder_id: int) -> int:
+        """Count total messages in a folder."""
+        pass
+    
+    @abstractmethod
     def get_message(self, message_id: int) -> Optional[EmailMessage]:
         """Get a message by ID with full body content."""
         pass

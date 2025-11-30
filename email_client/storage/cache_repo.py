@@ -249,6 +249,23 @@ def list_emails(folder_id: int, limit: int = 100, offset: int = 0) -> List[Email
     return [_row_to_email(row, load_body=False) for row in rows]
 
 
+def count_emails(folder_id: int) -> int:
+    """
+    Count total emails in a folder.
+    
+    Args:
+        folder_id: The folder ID.
+        
+    Returns:
+        Total number of emails in the folder.
+    """
+    row = db.fetchone(
+        "SELECT COUNT(*) as count FROM emails WHERE folder_id = ?",
+        (folder_id,)
+    )
+    return row['count'] if row else 0
+
+
 def get_email_by_id(email_id: int) -> Optional[EmailMessage]:
     """
     Get an email by ID with body content.

@@ -52,6 +52,10 @@ class MessageControllerImpl(MessageController):
         """List messages in a folder."""
         return cache_repo.list_emails(folder_id, limit=limit, offset=offset)
     
+    def count_messages(self, folder_id: int) -> int:
+        """Count total messages in a folder."""
+        return cache_repo.count_emails(folder_id)
+    
     def get_message(self, message_id: int) -> Optional[EmailMessage]:
         """Get a message by ID with full body content."""
         return cache_repo.get_email_by_id(message_id)
