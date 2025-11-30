@@ -80,7 +80,9 @@ class SmtpClient:
         if not self.token_bundle or not self.token_bundle.access_token:
             raise SmtpAuthenticationError("No access token available for XOAUTH2")
         
-        auth_string = f"user={self.account.email_address}\x01auth=Bearer {self.token_bundle.access_token}\x01\x01"
+        # Strip whitespace from email to prevent XOAUTH2 authentication failures
+        email = self.account.email_address.strip()
+        auth_string = f"user={email}\x01auth=Bearer {self.token_bundle.access_token}\x01\x01"
         return base64.b64encode(auth_string.encode('utf-8')).decode('utf-8')
     
     def _authenticate_xoauth2(self, smtp_conn: smtplib.SMTP) -> None:

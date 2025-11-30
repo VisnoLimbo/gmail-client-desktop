@@ -42,20 +42,50 @@ class OAuthThread(QThread):
             from email_client.oauth2_handler import OAuth2Handler
             oauth_handler = OAuth2Handler(self.provider)
             
+            print(f"🔐 Starting OAuth authentication ({self.auth_method})...")
+            import sys
+            sys.stdout.flush()
+            
+            token_json = None
+            
             if self.auth_method == 'gmail':
-                token_json = oauth_handler.authenticate_gmail()
+                try:
+                    token_json = oauth_handler.authenticate_gmail()
+                except Exception as inner_e:
+                    print(f"❌ OAuth authentication error: {inner_e}")
+                    import traceback
+                    traceback.print_exc()
+                    sys.stdout.flush()
+                    raise
             elif self.auth_method == 'outlook':
                 token_json = oauth_handler.authenticate_outlook()
             else:
+                error_msg = f"Unknown auth method: {self.auth_method}"
+                print(f"❌ {error_msg}")
                 if not self.isInterruptionRequested():
-                    self.authentication_failed.emit(f"Unknown auth method: {self.auth_method}")
+                    self.authentication_failed.emit(error_msg)
                 return
             
+            # Check the result
             if token_json and not self.isInterruptionRequested():
+                print(f"✅ OAuth authentication successful")
                 self.authentication_complete.emit(token_json)
+                import time
+                time.sleep(0.1)  # Give signal time to be processed
             elif not self.isInterruptionRequested():
-                self.authentication_failed.emit("OAuth authentication failed or was cancelled.")
+                error_msg = "OAuth authentication failed or was cancelled."
+                if hasattr(oauth_handler, '_error') and oauth_handler._error:
+                    error_msg = oauth_handler._error
+                print(f"❌ OAuth authentication failed: {error_msg}")
+                self.authentication_failed.emit(error_msg)
+            else:
+                print(f"⏹️  OAuth authentication cancelled")
         except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            print(f"❌ OAuth exception: {e}")
+            traceback.print_exc()
+            sys.stdout.flush()
             if not self.isInterruptionRequested():
                 self.authentication_failed.emit(f"OAuth error: {str(e)}")
 
@@ -345,8 +375,13 @@ class MainWindow(QMainWindow):
         self.setStatusBar(self.status_bar)
         self.status_bar.showMessage("Ready")
     
-    def load_accounts(self):
-        """Load accounts using the new database system"""
+    def load_accounts(self, select_account_id: int = None):
+        """Load accounts using the new database system
+        
+        Args:
+            select_account_id: Optional account ID to select after loading.
+                              If None, selects the first account.
+        """
         accounts = self.account_controller.list_accounts()
         if accounts:
             # Update sidebar (now supports EmailAccount directly)
@@ -357,9 +392,20 @@ class MainWindow(QMainWindow):
             for account in accounts:
                 if account.id:
                     self.account_filter.addItem(account.display_name or account.email_address, account.id)
-            # Select first account
-            if accounts and accounts[0].id:
-                self.on_account_selected(accounts[0].id)
+            # Select account - prefer the specified one, otherwise first account
+            account_to_select = None
+            if select_account_id:
+                # Find the specified account
+                for account in accounts:
+                    if account.id == select_account_id:
+                        account_to_select = account
+                        break
+            # If not found or not specified, use first account
+            if not account_to_select and accounts:
+                account_to_select = accounts[0]
+            
+            if account_to_select and account_to_select.id:
+                self.on_account_selected(account_to_select.id)
         else:
             # No accounts, show login dialog
             # Make sure main window is visible first
@@ -497,24 +543,90 @@ class MainWindow(QMainWindow):
         )
         self.oauth_progress_dialog.setWindowTitle("OAuth Authentication")
         self.oauth_progress_dialog.setWindowModality(Qt.WindowModal)
-        self.oauth_progress_dialog.setCancelButton(None)  # Don't allow cancel for now
+        # Enable cancel button - connect to cancellation handler
+        self.oauth_progress_dialog.canceled.connect(
+            lambda: self._on_oauth_cancelled(login_window)
+        )
         self.oauth_progress_dialog.show()
+        
+        # Store account_data and login_window for signal handlers
+        self._pending_oauth_account_data = account_data
+        self._pending_oauth_login_window = login_window
+        self._pending_oauth_db_manager = db_manager
+        self._pending_oauth_encryption_manager = encryption_manager
         
         # Create and start OAuth thread
         self.oauth_thread = OAuthThread(provider, auth_method)
-        self.oauth_thread.authentication_complete.connect(
-            lambda token_json: self._on_oauth_success(token_json, account_data, login_window, db_manager, encryption_manager)
-        )
-        self.oauth_thread.authentication_failed.connect(
-            lambda error: self._on_oauth_failure(error, login_window)
-        )
+        self.oauth_thread.authentication_complete.connect(self._on_oauth_success_signal)
+        self.oauth_thread.authentication_failed.connect(self._on_oauth_failure_signal)
         self.oauth_thread.finished.connect(self._on_oauth_thread_finished)
         self.oauth_thread.start()
+    
+    def _on_oauth_success_signal(self, token_json: str):
+        """Handle OAuth success signal - extract stored data and call actual handler"""
+        account_data = getattr(self, '_pending_oauth_account_data', {})
+        login_window = getattr(self, '_pending_oauth_login_window', None)
+        db_manager = getattr(self, '_pending_oauth_db_manager', None)
+        encryption_manager = getattr(self, '_pending_oauth_encryption_manager', None)
+        
+        # Clear stored data
+        self._pending_oauth_account_data = None
+        self._pending_oauth_login_window = None
+        self._pending_oauth_db_manager = None
+        self._pending_oauth_encryption_manager = None
+        
+        # Call the actual handler
+        self._on_oauth_success(token_json, account_data, login_window, db_manager, encryption_manager)
+    
+    def _on_oauth_failure_signal(self, error: str):
+        """Handle OAuth failure signal - extract stored data and call actual handler"""
+        login_window = getattr(self, '_pending_oauth_login_window', None)
+        
+        # Clear stored data
+        self._pending_oauth_account_data = None
+        self._pending_oauth_login_window = None
+        self._pending_oauth_db_manager = None
+        self._pending_oauth_encryption_manager = None
+        
+        # Call the actual handler
+        self._on_oauth_failure(error, login_window)
+    
+    def _on_oauth_cancelled(self, login_window: LoginWindow):
+        """Handle OAuth authentication cancellation by user"""
+        # Close progress dialog first to give immediate feedback
+        if self.oauth_progress_dialog:
+            self.oauth_progress_dialog.close()
+            self.oauth_progress_dialog = None
+        
+        # Interrupt the OAuth thread if it's running
+        if self.oauth_thread and self.oauth_thread.isRunning():
+            self.oauth_thread.requestInterruption()
+            # Don't wait for thread to finish - let it clean up in background
+            # The thread will check for interruption and exit gracefully
+        
+        # Re-enable login button
+        if login_window:
+            login_window.progress_bar.setVisible(False)
+            login_window.login_button.setEnabled(True)
+            # Keep login window open so user can try again
     
     def _on_oauth_success(self, token_json: str, account_data: dict, login_window: LoginWindow,
                           db_manager, encryption_manager):
         """Handle successful OAuth authentication (called from main thread via signal)"""
+        print(f"_on_oauth_success called - token_json length: {len(token_json) if token_json else 0}")
+        print(f"Account data provider: {account_data.get('provider', 'unknown')}")
+        
+        # Check if this was cancelled - if so, don't proceed
+        if self.oauth_thread and self.oauth_thread.isInterruptionRequested():
+            print("OAuth was cancelled - skipping account setup")
+            # User cancelled - already handled in _on_oauth_cancelled
+            if self.oauth_progress_dialog:
+                self.oauth_progress_dialog.close()
+                self.oauth_progress_dialog = None
+            return
+        
         try:
+            print("Closing progress dialog and login window...")
             # Close progress dialog first
             if self.oauth_progress_dialog:
                 self.oauth_progress_dialog.close()
@@ -539,12 +651,18 @@ class MainWindow(QMainWindow):
             
             # Defer heavy operations using a timer so the dialog can close first
             # This ensures the window closing happens immediately
+            print("Scheduling account setup to run in 100ms...")
             from PyQt5.QtCore import QTimer
             QTimer.singleShot(100, lambda: self._complete_account_setup_after_oauth(
                 token_json, account_data, db_manager, encryption_manager
             ))
+            print("Account setup scheduled successfully")
             
         except Exception as e:
+            import traceback
+            error_details = traceback.format_exc()
+            print(f"ERROR in _on_oauth_success: {e}")
+            print(f"Full traceback:\n{error_details}")
             QMessageBox.critical(self, "Error", f"Failed to add account: {str(e)}")
             if login_window:
                 login_window.progress_bar.setVisible(False)
@@ -552,6 +670,15 @@ class MainWindow(QMainWindow):
     
     def _on_oauth_failure(self, error: str, login_window: LoginWindow):
         """Handle OAuth authentication failure (called from main thread via signal)"""
+        # Check if this was due to user cancellation
+        if self.oauth_thread and self.oauth_thread.isInterruptionRequested():
+            # User cancelled - already handled in _on_oauth_cancelled
+            # Just clean up the dialog if it's still open
+            if self.oauth_progress_dialog:
+                self.oauth_progress_dialog.close()
+                self.oauth_progress_dialog = None
+            return
+        
         # Close progress dialog
         if self.oauth_progress_dialog:
             self.oauth_progress_dialog.close()
@@ -563,7 +690,7 @@ class MainWindow(QMainWindow):
             login_window.login_button.setEnabled(True)
             # Keep login window open so user can try again
         
-        # Show error message
+        # Show error message only if not cancelled
         QMessageBox.warning(
             self,
             "Authentication Failed",
@@ -588,16 +715,42 @@ class MainWindow(QMainWindow):
             
             token_data = json.loads(token_json)
             
+            # Check what scopes were granted (if stored)
+            if 'scopes' in token_data:
+                granted_scopes = token_data['scopes']
+                has_imap_scope = 'https://mail.google.com/' in granted_scopes if granted_scopes else False
+                if not has_imap_scope:
+                    print("⚠️  WARNING: Token does NOT include https://mail.google.com/ scope! IMAP authentication will likely fail.")
+            else:
+                print("⚠️  WARNING: Token scopes not stored in token_data")
+            
             # OAuth2Handler returns token in format: {'token': ..., 'refresh_token': ..., ...}
             # Extract token information (handle both formats)
             access_token = token_data.get('token') or token_data.get('access_token', '')
             refresh_token = token_data.get('refresh_token')
             
             # Calculate expiration time
-            # OAuth2Handler doesn't provide expires_in, so we'll use a default
-            # or try to get it from the token data
-            expires_in = token_data.get('expires_in', 3600)  # Default to 1 hour
+            # Google access tokens always expire in 3600 seconds (1 hour)
+            # Use expires_in from token data if available, otherwise default to 3600
+            expires_in = token_data.get('expires_in', 3600)
+            
+            # Ensure expires_in is a reasonable value (Google tokens are always ~3600 seconds)
+            if expires_in <= 0 or expires_in > 7200:  # More than 2 hours is suspicious
+                print(f"⚠️  WARNING: expires_in value looks wrong: {expires_in} seconds. Using default 3600.")
+                expires_in = 3600
+            
+            # Calculate expires_at: current time + expires_in seconds
             expires_at = datetime.now() + timedelta(seconds=expires_in)
+            
+            # DEBUG: Verify token lifetime calculation
+            token_lifetime = (expires_at - datetime.now()).total_seconds()
+            print(f"📅 Token expires_in: {expires_in}s, lifetime: {token_lifetime:.1f}s")
+            if token_lifetime > 7200:
+                print(f"❌ ERROR: Token lifetime too large! Expected ~3600s, got {token_lifetime:.1f}s")
+            
+            # Validate access token before creating bundle
+            if not access_token:
+                raise ValueError("Access token is empty or None - cannot create account")
             
             # Create TokenBundle
             token_bundle = TokenBundle(
@@ -606,12 +759,29 @@ class MainWindow(QMainWindow):
                 expires_at=expires_at
             )
             
+            # Get user email from OAuth user info (fetched during authentication)
+            # This is CRITICAL - account_data['email'] is empty!
+            # Strip whitespace to prevent XOAUTH2 authentication failures
+            profile_email = (token_data.get('user_email') or account_data.get('email') or '').strip()
+            
+            if not profile_email:
+                raise ValueError(
+                    "Could not retrieve email address from OAuth authentication. "
+                    "Please try again or contact support."
+                )
+            
+            # Get display name from OAuth user info or fall back to account_data
+            user_name = token_data.get('user_name', '')
+            display_name = (
+                account_data.get('display_name') or 
+                user_name or 
+                profile_email.split('@')[0]
+            )
+            
             # Create account using new system
             provider_name = account_data['provider'].lower()
-            profile_email = account_data['email']
-            display_name = account_data['display_name'] or profile_email.split('@')[0]
             
-            # Use the new account creation system
+            print(f"📧 Creating account for {profile_email}...")
             account = create_oauth_account(
                 provider_name=provider_name,
                 token_bundle=token_bundle,
@@ -619,24 +789,27 @@ class MainWindow(QMainWindow):
                 display_name=display_name
             )
             
-            # Reload accounts to refresh UI
-            self.load_accounts()
+            # Ensure we have a valid account ID
+            if not account.id:
+                raise ValueError("Account was created but has no ID. This is a critical error.")
             
-            # Select the newly added account
-            if account.id:
-                self.on_account_selected(account.id)
+            # Reload accounts to refresh UI (this will refresh the sidebar)
+            self.load_accounts(select_account_id=account.id)
             
-            # Sync folders in background thread with progress updates
-            self._start_initial_sync(account)
+            # Select the newly added account and start sync
+            from PyQt5.QtCore import QTimer
+            QTimer.singleShot(200, lambda: self._select_and_sync_account(account.id))
             
             # Bring main window to front
             self.show()
             self.raise_()
             self.activateWindow()
             
-            QMessageBox.information(self, "Success", "Account added successfully!")
+            print(f"✅ Account '{profile_email}' added successfully!")
+            QMessageBox.information(self, "Success", f"Account '{profile_email}' added successfully!")
         except Exception as e:
             import traceback
+            print(f"❌ Account setup error: {e}")
             traceback.print_exc()
             QMessageBox.critical(self, "Error", f"Failed to complete account setup: {str(e)}")
         finally:
@@ -647,6 +820,30 @@ class MainWindow(QMainWindow):
                 except:
                     pass
     
+    
+    def _select_and_sync_account(self, account_id: int):
+        """Helper method to select an account and start initial sync"""
+        try:
+            # Select the account
+            self.on_account_selected(account_id)
+            
+            # Get the account object
+            accounts = self.account_controller.list_accounts()
+            account = None
+            for acc in accounts:
+                if acc.id == account_id:
+                    account = acc
+                    break
+            
+            if account:
+                # Start initial sync in background
+                self._start_initial_sync(account)
+            else:
+                print(f"Warning: Account {account_id} not found after creation")
+        except Exception as e:
+            import traceback
+            traceback.print_exc()
+            print(f"Error in _select_and_sync_account: {e}")
     
     def on_account_selected(self, account_id: int):
         """Handle account selection"""

@@ -270,7 +270,14 @@ OAuth2 credentials are required for Gmail and Outlook authentication. You can sk
    - If prompted, configure the OAuth consent screen:
      - Choose "External" (unless you have a Google Workspace account)
      - Fill in required fields (App name, User support email, Developer contact)
-     - Add scopes: `https://www.googleapis.com/auth/gmail.readonly`, `https://www.googleapis.com/auth/gmail.send`, `https://www.googleapis.com/auth/gmail.modify`
+     - Add scopes:
+     - `https://mail.google.com/` (REQUIRED for IMAP/SMTP XOAUTH2 access)
+     - `https://www.googleapis.com/auth/gmail.readonly`
+     - `https://www.googleapis.com/auth/gmail.send`
+     - `https://www.googleapis.com/auth/gmail.modify`
+     - `https://www.googleapis.com/auth/userinfo.email` (for fetching user email)
+     - `https://www.googleapis.com/auth/userinfo.profile` (for fetching user name)
+     - `openid` (required when using userinfo scopes)
      - Add test users (your email address)
      - Save and continue
    - **Application type: Web application** (required because the app uses a redirect URI callback)

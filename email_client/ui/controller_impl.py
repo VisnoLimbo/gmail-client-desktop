@@ -91,8 +91,25 @@ class SyncControllerImpl(SyncController):
                 if account.auth_type == "oauth":
                     try:
                         token_bundle = get_token_bundle(account.id)
-                    except Exception:
-                        pass  # No token bundle available
+                        if token_bundle:
+                            print(f"SyncController: Retrieved token bundle for account {account.id}")
+                            print(f"SyncController: Token bundle has access_token: {bool(token_bundle.access_token)}")
+                            print(f"SyncController: Token bundle expires_at: {token_bundle.expires_at}")
+                            if token_bundle.access_token:
+                                print(f"SyncController: Access token length: {len(token_bundle.access_token)}")
+                                print(f"SyncController: Access token preview: {token_bundle.access_token[:20]}...")
+                            else:
+                                print(f"SyncController: ERROR - Token bundle has no access_token!")
+                                raise ValueError("Token bundle retrieved but access_token is None or empty")
+                        else:
+                            print(f"SyncController: WARNING - token_bundle is None for account {account.id}")
+                            raise ValueError("Token bundle is None")
+                    except Exception as e:
+                        print(f"SyncController: ERROR retrieving token bundle for account {account.id}: {e}")
+                        import traceback
+                        traceback.print_exc()
+                        # Don't silently fail - raise the error so we know what's wrong
+                        raise
                 if account.auth_type == "password":
                     try:
                         password = get_password(account.id)

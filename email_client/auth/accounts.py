@@ -231,10 +231,14 @@ def _row_to_email_account(row: sqlite3.Row) -> EmailAccount:
     if "auth_type" in row.keys():
         auth_type = row["auth_type"] or "oauth"
     
+    # Strip whitespace from email address when loading from database
+    # This prevents XOAUTH2 authentication failures from hidden whitespace
+    email_address = (row["email_address"] or "").strip()
+    
     return EmailAccount(
         id=row["id"],
         display_name=row["display_name"] or "",
-        email_address=row["email_address"],
+        email_address=email_address,
         provider=row["provider"],
         imap_host=row["imap_host"] if "imap_host" in row.keys() else "",
         smtp_host=row["smtp_host"] if "smtp_host" in row.keys() else "",
@@ -488,6 +492,10 @@ def create_oauth_account(
     Raises:
         AccountCreationError: If account creation fails.
     """
+    # Strip whitespace from email to prevent XOAUTH2 authentication failures
+    profile_email = profile_email.strip()
+    display_name = display_name.strip() if display_name else ''
+    
     # Get provider-specific hosts
     imap_host, smtp_host = _get_provider_hosts(provider_name)
     

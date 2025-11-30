@@ -136,10 +136,28 @@ SQLITE_DB_PATH=/custom/path/to/email_client.db
 1. Go to [Google Cloud Console](https://console.cloud.google.com/)
 2. Create a new project or select an existing one
 3. Enable the Gmail API
-4. Go to "Credentials" → "Create Credentials" → "OAuth 2.0 Client ID"
-5. **Choose "Web application" as the application type** (required because the app uses a redirect URI callback)
-6. **Add authorized redirect URI:** `http://localhost:8080/callback`
-7. Click "Create" and copy the Client ID and Client Secret to your `.env` file
+4. **Configure OAuth consent screen** (if not already done):
+   - Go to "APIs & Services" → "OAuth consent screen"
+   - Choose "External" (unless you have a Google Workspace account)
+   - Fill in required fields (App name, User support email, Developer contact)
+   - Click "Scopes" → "ADD OR REMOVE SCOPES"
+   - Add these scopes:
+     - `https://mail.google.com/` (REQUIRED for IMAP/SMTP XOAUTH2 access)
+     - `https://www.googleapis.com/auth/gmail.readonly`
+     - `https://www.googleapis.com/auth/gmail.send`
+     - `https://www.googleapis.com/auth/gmail.modify`
+     - `https://www.googleapis.com/auth/userinfo.email`
+     - `https://www.googleapis.com/auth/userinfo.profile`
+     - `openid`
+   - Add test users (your email address) if app is in Testing mode
+   - Save and continue
+
+5. **Create OAuth 2.0 Client ID:**
+   - Go to "APIs & Services" → "Credentials"
+   - Click "Create Credentials" → "OAuth 2.0 Client ID"
+   - **Choose "Web application" as the application type** (required because the app uses a redirect URI callback)
+   - **Add authorized redirect URI:** `http://localhost:8080/callback`
+   - Click "Create" and copy the Client ID and Client Secret to your `.env` file
 
 #### Outlook OAuth2
 

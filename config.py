@@ -42,9 +42,13 @@ OAUTH_REDIRECT_URI = f"http://localhost:{OAUTH_REDIRECT_PORT}/callback"
 GMAIL_CLIENT_ID = os.getenv("GMAIL_CLIENT_ID", "")
 GMAIL_CLIENT_SECRET = os.getenv("GMAIL_CLIENT_SECRET", "")
 GMAIL_SCOPES = [
+    "https://mail.google.com/",  # Required for IMAP/SMTP XOAUTH2 access
     "https://www.googleapis.com/auth/gmail.readonly",
     "https://www.googleapis.com/auth/gmail.send",
     "https://www.googleapis.com/auth/gmail.modify",
+    "openid",  # Required when using userinfo scopes
+    "https://www.googleapis.com/auth/userinfo.email",  # For fetching user email
+    "https://www.googleapis.com/auth/userinfo.profile",  # For fetching user name
 ]
 
 # Outlook OAuth2

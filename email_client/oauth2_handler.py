@@ -79,26 +79,90 @@ class OAuth2Handler:
             
             # Check for errors
             if self._error:
-                print(f"OAuth error: {self._error}")
+                print(f"❌ OAuth error: {self._error}")
                 return None
             
             if not callback_received or not self._code:
-                print("OAuth callback timeout or cancelled")
+                print("❌ OAuth callback timeout or cancelled")
                 return None
             
             # Exchange code for token
             try:
-                print(f"Exchanging authorization code for token (this may take a few seconds)...")
+                print(f"🔄 Exchanging authorization code for token...")
                 # The fetch_token call makes an HTTP request to Google's token endpoint
                 # This should complete quickly (< 5 seconds) but we'll let it run
                 # Since we're in a background thread, this won't block the UI
-                flow.fetch_token(code=self._code)
-                credentials = flow.credentials
-                print(f"Token exchange completed successfully")
                 
-                if not credentials or not credentials.token:
-                    print("Token exchange failed: No credentials returned")
+                # Suppress scope mismatch warnings - Google automatically adds 'openid' scope
+                # when using userinfo scopes, which is expected behavior, not an error
+                import warnings
+                import sys
+                
+                credentials = None
+                token_exchange_exception = None
+                
+                # Suppress warnings completely during token exchange
+                # AND catch all exceptions (including warnings raised as exceptions)
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore")
+                    old_showwarning = warnings.showwarning
+                    warnings.showwarning = lambda *args, **kwargs: None
+                    
+                    try:
+                        # Try to fetch token - this might raise Warning as exception
+                        flow.fetch_token(code=self._code)
+                        # If we get here, token exchange succeeded
+                        credentials = flow.credentials
+                        print("Token exchange: fetch_token() completed successfully")
+                    except Exception as e:
+                        # Catch ALL exceptions including Warning (which is a subclass of Exception)
+                        error_msg = str(e)
+                        error_type = type(e).__name__
+                        
+                        # Check if it's a scope-related warning/error
+                        if 'Scope has changed' in error_msg or 'scope' in error_msg.lower() or isinstance(e, Warning):
+                            print(f"Scope warning/exception caught (expected - can ignore): {error_type}: {error_msg[:150]}")
+                            # Even if exception was raised, credentials might still be set
+                            # oauthlib often sets credentials before raising scope warnings
+                            credentials = flow.credentials
+                            if credentials and credentials.token:
+                                print("Credentials were set despite scope warning - continuing...")
+                            else:
+                                print("WARNING: No credentials found after scope warning")
+                        else:
+                            # Real error - log it but still check for credentials
+                            token_exchange_exception = e
+                            print(f"Exception during token exchange ({error_type}): {error_msg[:200]}")
+                            # Still try to get credentials in case they were set
+                            credentials = flow.credentials
+                    finally:
+                        warnings.showwarning = old_showwarning
+                        
+                # Final check - if we don't have credentials, try one more time
+                if not credentials:
+                    credentials = flow.credentials
+                
+                # Verify we have credentials - even if exception occurred
+                if not credentials:
+                    error_msg = "No credentials object returned after token exchange"
+                    if token_exchange_exception:
+                        error_msg += f": {str(token_exchange_exception)}"
+                    print(f"ERROR: {error_msg}")
                     return None
+                    
+                if not credentials.token:
+                    print("❌ Token exchange failed: No access token in credentials")
+                    return None
+                
+                # Log the scopes that were actually granted
+                granted_scopes = credentials.scopes if credentials.scopes else []
+                has_imap_scope = 'https://mail.google.com/' in granted_scopes
+                
+                if not has_imap_scope:
+                    print("⚠️  WARNING: Token does NOT include https://mail.google.com/ scope! IMAP will fail.")
+                    print("⚠️  Please ensure the scope is added to Google Cloud Console OAuth consent screen.")
+                else:
+                    print(f"✅ Token granted with {len(granted_scopes)} scope(s) (IMAP scope included)")
                 
                 # Store token
                 self.token = {
@@ -110,20 +174,70 @@ class OAuth2Handler:
                     'scopes': credentials.scopes
                 }
                 
-                print("Gmail OAuth2 authentication successful")
-                return json.dumps(self.token)
+                # Fetch user info from Google to get email address
+                # This is CRITICAL - we need the email address to create the account
+                user_info = self._fetch_google_user_info(credentials.token)
+                
+                # Store user info in token dict for easy access
+                if user_info and user_info.get('email'):
+                    # Strip whitespace from email to prevent XOAUTH2 authentication failures
+                    user_email = user_info.get('email', '').strip()
+                    self.token['user_email'] = user_email
+                    self.token['user_name'] = user_info.get('name', '').strip() if user_info.get('name') else ''
+                    self.token['user_picture'] = user_info.get('picture', '')
+                    print(f"✅ User info fetched: {user_email}")
+                else:
+                    error_msg = "Failed to fetch user email from Google. Please ensure you granted all required permissions."
+                    print(f"❌ {error_msg}")
+                    self._error = error_msg
+                    return None
+                
+                # Include expiry time if available
+                # Google access tokens always expire in 3600 seconds (1 hour)
+                if hasattr(credentials, 'expiry') and credentials.expiry:
+                    from datetime import datetime, timezone
+                    now_utc = datetime.now(timezone.utc)
+                    if credentials.expiry.tzinfo is None:
+                        expiry_utc = credentials.expiry.replace(tzinfo=timezone.utc)
+                    else:
+                        expiry_utc = credentials.expiry
+                    
+                    expires_in = int((expiry_utc - now_utc).total_seconds())
+                    
+                    # Google tokens should be ~3600 seconds. Sanity check.
+                    if expires_in > 0 and expires_in <= 7200:
+                        self.token['expires_in'] = expires_in
+                    else:
+                        print(f"⚠️  expires_in calculation looks wrong: {expires_in}s. Using default 3600.")
+                        self.token['expires_in'] = 3600
+                else:
+                    self.token['expires_in'] = 3600
+                
+                token_json = json.dumps(self.token)
+                return token_json
             except Exception as e:
                 import traceback
                 print(f"Token exchange failed: {e}")
                 traceback.print_exc()
                 return None
                 
-        except Exception as e:
-            print(f"Gmail OAuth2 error: {e}")
-            return None
+            except Exception as e:
+                import traceback
+                error_details = traceback.format_exc()
+                print(f"Gmail OAuth2 error: {e}")
+                print(f"Full traceback:\n{error_details}")
+                # Set error so it can be checked
+                if not hasattr(self, '_error') or not self._error:
+                    self._error = f"OAuth error: {str(e)}"
+                return None
         finally:
             # Always stop the callback server
+            print("authenticate_gmail: Entering finally block to stop callback server")
+            import sys
+            sys.stdout.flush()
             self._stop_callback_server()
+            print("authenticate_gmail: Callback server stopped, exiting finally block")
+            sys.stdout.flush()
     
     def authenticate_outlook(self) -> Optional[str]:
         """Authenticate with Outlook using OAuth2"""
@@ -387,15 +501,55 @@ class OAuth2Handler:
         """Stop the callback server gracefully"""
         if self._server:
             try:
-                # Shutdown the server
-                self._server.shutdown()
-                # Close the server socket
-                self._server.server_close()
-                print("Callback server stopped")
+                print("_stop_callback_server: Starting server shutdown...")
+                import sys
+                sys.stdout.flush()
+                
+                # Get reference to server before clearing
+                server = self._server
+                self._server = None  # Clear reference immediately to prevent new requests
+                
+                # With ThreadingMixIn and daemon_threads=True, shutdown() blocks waiting for threads
+                # Since we're daemon threads, we can just close the socket and let them exit naturally
+                # Close the server socket directly - this is non-blocking
+                server.server_close()
+                print("_stop_callback_server: Server socket closed (daemon threads will exit automatically)")
+                sys.stdout.flush()
+                
+                # Don't call shutdown() - it blocks waiting for threads to finish
+                # Daemon threads will exit when the main thread exits
+                
             except Exception as e:
-                print(f"Error stopping callback server: {e}")
-            finally:
+                print(f"_stop_callback_server: Error stopping callback server: {e}")
+                import sys
+                sys.stdout.flush()
+                import traceback
+                traceback.print_exc()
+                sys.stdout.flush()
+                # Clear server reference even on error
                 self._server = None
+    
+    def _fetch_google_user_info(self, access_token: str) -> Optional[Dict]:
+        """Fetch user information from Google's userinfo API"""
+        try:
+            url = "https://www.googleapis.com/oauth2/v2/userinfo"
+            headers = {
+                'Authorization': f'Bearer {access_token}'
+            }
+            response = requests.get(url, headers=headers, timeout=10)
+            
+            if response.status_code == 200:
+                user_info = response.json()
+                print(f"Successfully fetched user info from Google: {user_info.get('email', 'unknown')}")
+                return user_info
+            else:
+                print(f"Failed to fetch user info: HTTP {response.status_code} - {response.text}")
+                return None
+        except Exception as e:
+            print(f"Error fetching user info from Google: {e}")
+            import traceback
+            traceback.print_exc()
+            return None
     
     def get_access_token(self) -> Optional[str]:
         """Get current access token"""
