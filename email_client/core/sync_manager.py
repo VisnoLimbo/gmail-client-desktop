@@ -266,11 +266,30 @@ class SyncManager:
             return cached_message
         
         # Fetch body from server
-        with self.imap_client:
-            body_plain, body_html = self.imap_client.fetch_body(
-                folder,
-                str(message.uid_on_server)
-            )
+        # Use context manager to ensure connection is properly managed
+        # If connection fails, it will be re-established
+        try:
+            with self.imap_client:
+                body_plain, body_html = self.imap_client.fetch_body(
+                    folder,
+                    str(message.uid_on_server)
+                )
+        except Exception as e:
+            # If connection fails, try once more with a fresh connection
+            # Close any existing connection first
+            try:
+                self.imap_client.close()
+            except:
+                pass
+            # Reset connection state
+            self.imap_client.connection = None
+            self.imap_client._authenticated = False
+            # Retry with fresh connection
+            with self.imap_client:
+                body_plain, body_html = self.imap_client.fetch_body(
+                    folder,
+                    str(message.uid_on_server)
+                )
         
         # Update cache with body content
         cache_repo.update_email_body(

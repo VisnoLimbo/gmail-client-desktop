@@ -248,6 +248,15 @@ class ImapClient:
         """Ensure connection is established."""
         if not self._authenticated or not self.connection:
             self._connect()
+        elif self.connection:
+            # Check if connection is still alive by trying a NOOP command
+            try:
+                self.connection.noop()
+            except Exception:
+                # Connection is dead, reconnect
+                self.connection = None
+                self._authenticated = False
+                self._connect()
     
     def _quote_folder_name(self, folder_path: str) -> str:
         """

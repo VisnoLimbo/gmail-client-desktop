@@ -12,7 +12,7 @@ from datetime import datetime
 
 
 def format_date_time(date_obj) -> str:
-    """Format date and time for display"""
+    """Format date and time for display - always shows date and time"""
     if isinstance(date_obj, str):
         try:
             date_obj = datetime.fromisoformat(date_obj.replace('Z', '+00:00'))
@@ -26,8 +26,8 @@ def format_date_time(date_obj) -> str:
     diff = now - date_obj.replace(tzinfo=None) if date_obj.tzinfo else now - date_obj
     
     if diff.days == 0:
-        # Today: show time only
-        return date_obj.strftime("%H:%M")
+        # Today: show "Today HH:MM"
+        return f"Today {date_obj.strftime('%H:%M')}"
     elif diff.days == 1:
         # Yesterday: show "Yesterday HH:MM"
         return f"Yesterday {date_obj.strftime('%H:%M')}"
@@ -141,13 +141,16 @@ class EmailPreview(QWidget):
         self.back_btn.clicked.connect(self.back_clicked.emit)
         title_layout.addWidget(self.back_btn)
         
-        # Subject label (takes remaining space)
+        # Subject label (takes remaining space, no box/background)
         self.subject_label = QLabel()
         self.subject_label.setStyleSheet("""
             QLabel {
                 color: #ffffff;
                 font-size: 18px;
                 font-weight: 600;
+                background-color: transparent;
+                border: none;
+                padding: 0px;
             }
         """)
         title_layout.addWidget(self.subject_label, 1)  # Stretch factor
