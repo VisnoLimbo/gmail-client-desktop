@@ -248,6 +248,15 @@ class ImapClient:
         """Ensure connection is established."""
         if not self._authenticated or not self.connection:
             self._connect()
+        elif self.connection:
+            # Check if connection is still alive by trying a NOOP command
+            try:
+                self.connection.noop()
+            except Exception:
+                # Connection is dead, reconnect
+                self.connection = None
+                self._authenticated = False
+                self._connect()
     
     def _quote_folder_name(self, folder_path: str) -> str:
         """
@@ -993,4 +1002,41 @@ class ImapClient:
             raise
         except Exception as e:
             raise ImapOperationError(f"Error moving message: {str(e)}")
+    
+    def delete_message(self, folder: Folder, message_uid: str) -> None:
+        """
+        Delete a message from the server.
+        
+        This marks the message with the \Deleted flag and expunges it.
+        For Gmail and most providers, this moves the message to Trash.
+        
+        Args:
+            folder: The folder containing the message.
+            message_uid: The message UID as a string.
+            
+        Raises:
+            ImapOperationError: If the operation fails.
+        """
+        self._ensure_connected()
+        
+        try:
+            # Select the folder (quote folder name if it contains spaces or special characters)
+            folder_path = self._quote_folder_name(folder.server_path)
+            result, data = self.connection.select(folder_path)
+            if result != 'OK':
+                raise ImapOperationError(f"Failed to select folder '{folder.server_path}': {result}")
+            
+            # Mark message as deleted
+            result, data = self.connection.uid('store', message_uid, '+FLAGS', '(\\Deleted)')
+            if result != 'OK':
+                raise ImapOperationError(f"Failed to mark message {message_uid} as deleted: {result}")
+            
+            # Expunge to actually delete (or move to Trash for Gmail)
+            result, data = self.connection.expunge()
+            if result != 'OK':
+                raise ImapOperationError(f"Failed to expunge deleted messages: {result}")
+        except ImapOperationError:
+            raise
+        except Exception as e:
+            raise ImapOperationError(f"Error deleting message: {str(e)}")
 

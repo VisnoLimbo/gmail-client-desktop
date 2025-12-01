@@ -2,12 +2,44 @@
 Email preview component
 """
 from PyQt5.QtWidgets import (QWidget, QVBoxLayout, QHBoxLayout, QLabel, QTextEdit,
-                             QPushButton, QScrollArea, QFrame)
+                             QPushButton, QScrollArea, QFrame, QMenu, QToolButton, QTextBrowser)
 from PyQt5.QtCore import Qt, pyqtSignal
-from PyQt5.QtGui import QFont
+from PyQt5.QtGui import QFont, QIcon
 from email_client.models import EmailMessage, Attachment
-from utils.helpers import format_date, format_file_size
+from utils.helpers import format_file_size
 from pathlib import Path
+from datetime import datetime
+
+
+def format_date_time(date_obj) -> str:
+    """Format date and time for display - always shows date and time"""
+    if isinstance(date_obj, str):
+        try:
+            date_obj = datetime.fromisoformat(date_obj.replace('Z', '+00:00'))
+        except:
+            return date_obj
+    
+    if not isinstance(date_obj, datetime):
+        return str(date_obj)
+    
+    now = datetime.now()
+    diff = now - date_obj.replace(tzinfo=None) if date_obj.tzinfo else now - date_obj
+    
+    if diff.days == 0:
+        # Today: show "Today HH:MM"
+        return f"Today {date_obj.strftime('%H:%M')}"
+    elif diff.days == 1:
+        # Yesterday: show "Yesterday HH:MM"
+        return f"Yesterday {date_obj.strftime('%H:%M')}"
+    elif diff.days < 7:
+        # This week: show day and time
+        return date_obj.strftime("%A %H:%M")
+    elif diff.days < 365:
+        # This year: show date and time
+        return date_obj.strftime("%b %d, %H:%M")
+    else:
+        # Older: show full date and time
+        return date_obj.strftime("%b %d, %Y %H:%M")
 
 
 class EmailPreview(QWidget):
@@ -22,7 +54,7 @@ class EmailPreview(QWidget):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setup_ui()
-        self.current_email: Email = None
+        self.current_email: EmailMessage = None
     
     def setup_ui(self):
         """Setup the UI"""
@@ -53,6 +85,19 @@ class EmailPreview(QWidget):
             QPushButton:pressed {
                 background-color: #2d2d30;
             }
+            QToolButton {
+                background-color: transparent;
+                border: none;
+                border-radius: 4px;
+                padding: 4px 8px;
+            }
+            QToolButton:hover {
+                background-color: #2a2d2e;
+            }
+            QToolButton::menu-indicator {
+                image: none;
+                width: 0px;
+            }
             QTextEdit {
                 background-color: #1e1e1e;
                 border: 1px solid #3e3e42;
@@ -65,97 +110,100 @@ class EmailPreview(QWidget):
         
         layout = QVBoxLayout()
         layout.setContentsMargins(12, 12, 12, 12)
-        layout.setSpacing(8)
+        layout.setSpacing(12)
         
-        # Back button and navigation bar
-        nav_layout = QHBoxLayout()
-        nav_layout.setContentsMargins(0, 0, 0, 0)
-        nav_layout.setSpacing(0)
+        # Title row: Back button (icon) + Subject + Details dropdown
+        title_layout = QHBoxLayout()
+        title_layout.setContentsMargins(0, 0, 0, 0)
+        title_layout.setSpacing(12)
         
-        self.back_btn = QPushButton("← Back")
+        # Back button (icon only)
+        self.back_btn = QPushButton("←")
         self.back_btn.setStyleSheet("""
             QPushButton {
-                background-color: #3c3c3c;
+                background-color: transparent;
                 color: #cccccc;
-                border: 1px solid #555555;
+                border: none;
                 border-radius: 4px;
-                padding: 6px 12px;
-                font-size: 12px;
-                font-weight: 500;
+                padding: 6px 10px;
+                font-size: 18px;
+                font-weight: bold;
+                min-width: 30px;
+                max-width: 30px;
             }
             QPushButton:hover {
-                background-color: #464647;
-                border-color: #666666;
+                background-color: #2a2d2e;
             }
             QPushButton:pressed {
-                background-color: #2d2d30;
+                background-color: #1e1e1e;
             }
         """)
         self.back_btn.clicked.connect(self.back_clicked.emit)
-        nav_layout.addWidget(self.back_btn)
-        nav_layout.addStretch()
+        title_layout.addWidget(self.back_btn)
         
-        layout.addLayout(nav_layout)
-        
-        # Header section - more compact
-        header_frame = QFrame()
-        header_frame.setStyleSheet("""
-            QFrame {
-                background-color: #252526;
-                border: 1px solid #3e3e42;
-                border-radius: 4px;
-                padding: 10px 12px;
-            }
-        """)
-        header_layout = QVBoxLayout()
-        header_layout.setSpacing(4)
-        header_layout.setContentsMargins(0, 0, 0, 0)
-        
-        # Subject
+        # Subject label (takes remaining space, no box/background)
         self.subject_label = QLabel()
         self.subject_label.setStyleSheet("""
             QLabel {
                 color: #ffffff;
-                font-size: 16px;
+                font-size: 18px;
                 font-weight: 600;
-                padding-bottom: 4px;
+                background-color: transparent;
+                border: none;
+                padding: 0px;
             }
         """)
-        header_layout.addWidget(self.subject_label)
+        title_layout.addWidget(self.subject_label, 1)  # Stretch factor
         
-        # From, To, Date - more compact
-        self.from_label = QLabel()
-        self.from_label.setStyleSheet("""
-            QLabel {
-                color: #cccccc;
-                font-size: 12px;
-                padding: 2px 0px;
-            }
-        """)
-        header_layout.addWidget(self.from_label)
-        
-        self.to_label = QLabel()
-        self.to_label.setStyleSheet("""
-            QLabel {
-                color: #cccccc;
-                font-size: 12px;
-                padding: 2px 0px;
-            }
-        """)
-        header_layout.addWidget(self.to_label)
-        
-        self.date_label = QLabel()
-        self.date_label.setStyleSheet("""
-            QLabel {
+        # Details dropdown button (From, To, Date)
+        self.details_btn = QToolButton()
+        self.details_btn.setText("⋯")
+        self.details_btn.setStyleSheet("""
+            QToolButton {
+                background-color: transparent;
                 color: #858585;
-                font-size: 11px;
-                padding: 2px 0px;
+                border: 1px solid #3e3e42;
+                border-radius: 4px;
+                padding: 6px 12px;
+                font-size: 16px;
+                font-weight: bold;
+                min-width: 40px;
+            }
+            QToolButton:hover {
+                background-color: #2a2d2e;
+                border-color: #555555;
+                color: #cccccc;
             }
         """)
-        header_layout.addWidget(self.date_label)
         
-        header_frame.setLayout(header_layout)
-        layout.addWidget(header_frame)
+        # Create details menu
+        self.details_menu = QMenu(self)
+        self.details_menu.setStyleSheet("""
+            QMenu {
+                background-color: #252526;
+                color: #cccccc;
+                border: 1px solid #3e3e42;
+                border-radius: 4px;
+                padding: 8px;
+            }
+            QMenu::item {
+                padding: 8px 12px;
+                border-radius: 4px;
+            }
+            QMenu::item:selected {
+                background-color: #094771;
+            }
+        """)
+        
+        self.from_action = self.details_menu.addAction("")
+        self.to_action = self.details_menu.addAction("")
+        self.date_action = self.details_menu.addAction("")
+        self.details_menu.addSeparator()
+        self.details_btn.setMenu(self.details_menu)
+        self.details_btn.setPopupMode(QToolButton.InstantPopup)
+        title_layout.addWidget(self.details_btn)
+        
+        layout.addLayout(title_layout)
         
         # Action buttons - compact with proper icon sizing
         button_layout = QHBoxLayout()
@@ -249,17 +297,17 @@ class EmailPreview(QWidget):
         self.attachments_widget.setVisible(False)
         layout.addWidget(self.attachments_widget)
         
-        # Email body
-        self.body_text = QTextEdit()
-        self.body_text.setReadOnly(True)
+        # Email body with improved rendering (using QTextBrowser for link support)
+        self.body_text = QTextBrowser()
+        self.body_text.setOpenExternalLinks(True)
         self.body_text.setStyleSheet("""
-            QTextEdit {
-                background-color: #1e1e1e;
+            QTextBrowser {
+                background-color: #ffffff;
                 border: 1px solid #3e3e42;
                 border-radius: 6px;
-                color: #cccccc;
+                color: #202124;
                 font-size: 14px;
-                padding: 16px;
+                padding: 20px;
                 line-height: 1.6;
             }
         """)
@@ -289,20 +337,112 @@ class EmailPreview(QWidget):
         self.forward_btn.setVisible(True)
         self.delete_btn.setVisible(True)
         self.back_btn.setVisible(True)
+        self.details_btn.setVisible(True)
         
-        # Set header information
+        # Set subject
         self.subject_label.setText(email.subject or "(No Subject)")
-        self.from_label.setText(f"From: {email.sender}")
-        recipients_str = ", ".join(email.recipients) if email.recipients else ""
-        self.to_label.setText(f"To: {recipients_str}")
-        date_to_show = email.received_at or email.sent_at
-        self.date_label.setText(f"Date: {format_date(date_to_show) if date_to_show else 'Unknown'}")
         
-        # Set body
+        # Set details in dropdown menu
+        self.from_action.setText(f"From: {email.sender}")
+        recipients_str = ", ".join(email.recipients) if email.recipients else ""
+        self.to_action.setText(f"To: {recipients_str}")
+        date_to_show = email.received_at or email.sent_at
+        date_str = format_date_time(date_to_show) if date_to_show else 'Unknown'
+        self.date_action.setText(f"Date: {date_str}")
+        
+        # Set body with improved rendering
         if email.body_html:
-            self.body_text.setHtml(email.body_html)
+            # Improve HTML rendering with better styling
+            html_content = email.body_html
+            
+            # Wrap in a styled container for better rendering
+            # This ensures proper background, font, and spacing
+            styled_html = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <style>
+                    body {{
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+                        font-size: 14px;
+                        line-height: 1.6;
+                        color: #202124;
+                        background-color: #ffffff;
+                        margin: 0;
+                        padding: 0;
+                    }}
+                    img {{
+                        max-width: 100%;
+                        height: auto;
+                    }}
+                    a {{
+                        color: #1a73e8;
+                        text-decoration: none;
+                    }}
+                    a:hover {{
+                        text-decoration: underline;
+                    }}
+                    pre {{
+                        background-color: #f5f5f5;
+                        padding: 12px;
+                        border-radius: 4px;
+                        overflow-x: auto;
+                    }}
+                    blockquote {{
+                        border-left: 4px solid #dadce0;
+                        padding-left: 16px;
+                        margin-left: 0;
+                        color: #5f6368;
+                    }}
+                    table {{
+                        border-collapse: collapse;
+                        width: 100%;
+                    }}
+                    table td, table th {{
+                        border: 1px solid #dadce0;
+                        padding: 8px;
+                    }}
+                </style>
+            </head>
+            <body>
+                {html_content}
+            </body>
+            </html>
+            """
+            self.body_text.setHtml(styled_html)
         elif email.body_plain:
-            self.body_text.setPlainText(email.body_plain)
+            # For plain text, preserve formatting and convert to HTML
+            plain_text = email.body_plain
+            # Escape HTML special characters
+            plain_text = plain_text.replace('&', '&amp;').replace('<', '&lt;').replace('>', '&gt;')
+            # Convert line breaks to <br>
+            plain_text = plain_text.replace('\n', '<br>')
+            # Wrap in styled container
+            styled_html = f"""
+            <!DOCTYPE html>
+            <html>
+            <head>
+                <meta charset="UTF-8">
+                <style>
+                    body {{
+                        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
+                        font-size: 14px;
+                        line-height: 1.6;
+                        color: #202124;
+                        background-color: #ffffff;
+                        margin: 0;
+                        padding: 0;
+                        white-space: pre-wrap;
+                    }}
+                </style>
+            </head>
+            <body>
+                {plain_text}
+            </body>
+            </html>
+            """
+            self.body_text.setHtml(styled_html)
         else:
             self.body_text.setPlainText("(No content)")
         
@@ -320,9 +460,15 @@ class EmailPreview(QWidget):
             # Add attachment widgets
             for attachment in attachments:
                 att_layout = QHBoxLayout()
-                att_label = QLabel(f"📎 {attachment.filename} ({format_file_size(attachment.file_size)})")
+                # Use local_path if available, otherwise filename
+                file_path = attachment.local_path if hasattr(attachment, 'local_path') and attachment.local_path else None
+                file_size = attachment.size_bytes if hasattr(attachment, 'size_bytes') else 0
+                att_label = QLabel(f"📎 {attachment.filename} ({format_file_size(file_size)})")
                 att_btn = QPushButton("Open")
-                att_btn.clicked.connect(lambda checked, path=attachment.file_path: self.attachment_clicked.emit(path))
+                if file_path:
+                    att_btn.clicked.connect(lambda checked, path=file_path: self.attachment_clicked.emit(path))
+                else:
+                    att_btn.setEnabled(False)
                 att_layout.addWidget(att_label)
                 att_layout.addWidget(att_btn)
                 att_layout.addStretch()
@@ -345,11 +491,12 @@ class EmailPreview(QWidget):
         self.attachments_label.setVisible(False)
         self.attachments_widget.setVisible(False)
         self.back_btn.setVisible(False)
+        self.details_btn.setVisible(False)
         
         self.subject_label.clear()
-        self.from_label.clear()
-        self.to_label.clear()
-        self.date_label.clear()
+        self.from_action.setText("From: -")
+        self.to_action.setText("To: -")
+        self.date_action.setText("Date: -")
         self.body_text.clear()
     
     def on_reply(self):
@@ -366,4 +513,3 @@ class EmailPreview(QWidget):
         """Handle delete button click"""
         if self.current_email:
             self.delete_clicked.emit(self.current_email.id)
-

@@ -334,3 +334,10 @@ class EmailList(QWidget):
             self.current_page += 1
             self.page_changed.emit(self.current_page)
 
+    def set_email_read_state(self, email_id: int, is_read: bool) -> None:
+        """Update read/unread state for a single email in the list and refresh UI."""
+        email = self.emails.get(email_id)
+        if email:
+            email.is_read = is_read
+            self.update_table()
+
