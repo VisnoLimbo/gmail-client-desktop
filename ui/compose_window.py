@@ -150,11 +150,20 @@ class ComposeWindow(QDialog):
             self.subject_input.setText(subject)
             
             # Add quoted original message
+            # Prefer received_at, then sent_at, formatted nicely
+            from datetime import datetime
+            msg_dt = self.reply_to.received_at or self.reply_to.sent_at
+            if isinstance(msg_dt, datetime):
+                date_str = msg_dt.strftime("%Y-%m-%d %H:%M")
+            else:
+                date_str = ""
             original_text = f"\n\n--- Original Message ---\n"
             original_text += f"From: {self.reply_to.sender}\n"
-            original_text += f"Date: {self.reply_to.timestamp}\n"
+            if date_str:
+                original_text += f"Date: {date_str}\n"
             original_text += f"Subject: {self.reply_to.subject}\n\n"
-            original_text += self.reply_to.body_text or self.reply_to.body_html
+            body = self.reply_to.body_plain or self.reply_to.body_html or ""
+            original_text += body
             self.body_editor.setPlainText(original_text)
         
         elif self.forward_email:
@@ -165,11 +174,19 @@ class ComposeWindow(QDialog):
             self.subject_input.setText(subject)
             
             # Add forwarded message
+            from datetime import datetime
+            msg_dt = self.forward_email.received_at or self.forward_email.sent_at
+            if isinstance(msg_dt, datetime):
+                date_str = msg_dt.strftime("%Y-%m-%d %H:%M")
+            else:
+                date_str = ""
             forwarded_text = f"\n\n--- Forwarded Message ---\n"
             forwarded_text += f"From: {self.forward_email.sender}\n"
-            forwarded_text += f"Date: {self.forward_email.timestamp}\n"
+            if date_str:
+                forwarded_text += f"Date: {date_str}\n"
             forwarded_text += f"Subject: {self.forward_email.subject}\n\n"
-            forwarded_text += self.forward_email.body_text or self.forward_email.body_html
+            body = self.forward_email.body_plain or self.forward_email.body_html or ""
+            forwarded_text += body
             self.body_editor.setPlainText(forwarded_text)
     
     def setup_draft(self):

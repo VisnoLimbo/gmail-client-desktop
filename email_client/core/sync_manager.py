@@ -194,9 +194,20 @@ class SyncManager:
             
             # Check if message exists in cache
             if remote_msg.uid_on_server in cached_by_uid:
-                # Update existing message
+                # Update existing message, preserving local read/flag state
                 cached_msg = cached_by_uid[remote_msg.uid_on_server]
                 remote_msg.id = cached_msg.id
+
+                # If we've already marked this message as read locally, keep it read
+                if cached_msg.is_read and not remote_msg.is_read:
+                    remote_msg.is_read = True
+                    # Ensure \Seen is present in flags
+                    if '\\Seen' not in remote_msg.flags:
+                        remote_msg.flags.add('\\Seen')
+
+                # Merge flags so we don't lose any local-only flags
+                if cached_msg.flags:
+                    remote_msg.flags = remote_msg.flags.union(cached_msg.flags)
             
             messages_to_upsert.append(remote_msg)
         
@@ -271,6 +282,26 @@ class SyncManager:
         # Return updated message
         updated_message = cache_repo.get_email_by_id(message.id)
         return updated_message or message
+
+    def mark_message_read(self, folder: Folder, message: EmailMessage) -> None:
+        """
+        Mark a message as read both on the server and in the local cache.
+        
+        Args:
+            folder: The folder containing the message.
+            message: The email message (must have id and uid_on_server set).
+        """
+        if not message.id:
+            raise ValueError("Message ID must be set to mark as read")
+        if not message.uid_on_server:
+            raise ValueError("Message UID must be set to mark as read")
+
+        # Update server first so local state mirrors remote state
+        with self.imap_client:
+            self.imap_client.mark_read(folder, str(message.uid_on_server))
+
+        # Update local cache flags
+        cache_repo.mark_email_read(message.id, True)
     
     def run_periodic_sync(
         self,
@@ -336,4 +367,23 @@ class SyncManager:
         """
         with self._lock:
             return self._sync_in_progress
+    
+    def delete_message(self, folder: Folder, message: EmailMessage) -> None:
+        """
+        Delete a message from the server.
+        
+        Args:
+            folder: The folder containing the message.
+            message: The email message to delete (must have uid_on_server set).
+            
+        Raises:
+            ImapError: If IMAP operations fail.
+            ValueError: If message UID is not set.
+        """
+        if not message.uid_on_server:
+            raise ValueError("Message UID must be set to delete from server")
+        
+        # Delete from server using IMAP client
+        with self.imap_client:
+            self.imap_client.delete_message(folder, str(message.uid_on_server))
 

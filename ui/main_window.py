@@ -1243,10 +1243,33 @@ class MainWindow(QMainWindow):
                     # If fetch fails, show email without body
                     print(f"Failed to fetch email body: {e}")
         
-        # Mark as read
+        # Mark as read (both locally and on the server)
         if not email.is_read:
+            # Update local cache
             cache_repo.mark_email_read(email_id, True)
             email.is_read = True
+
+            # Update server flags if possible
+            if folder and email.uid_on_server:
+                try:
+                    accounts = self.account_controller.list_accounts()
+                    account = None
+                    for acc in accounts:
+                        if acc.id == email.account_id:
+                            account = acc
+                            break
+                    if account:
+                        self.sync_controller.mark_message_read(account, folder, email)
+                except Exception as e:
+                    # Don't block UI if server update fails
+                    print(f"Failed to mark message as read on server: {e}")
+
+            # Update list UI so the row is no longer bold/unread
+            if hasattr(self, "email_list") and self.email_list:
+                try:
+                    self.email_list.set_email_read_state(email_id, True)
+                except Exception:
+                    pass
         
         # Get attachments
         attachments = cache_repo.list_attachments(email_id)
@@ -1318,16 +1341,61 @@ class MainWindow(QMainWindow):
         reply = QMessageBox.question(self, "Delete Email", "Are you sure you want to delete this email?",
                                     QMessageBox.Yes | QMessageBox.No)
         if reply == QMessageBox.Yes:
-            # Delete email from cache
-            from email_client.storage import db
-            db.execute("DELETE FROM emails WHERE id = ?", (email_id,))
-            # Reload emails with pagination
-            if self.current_folder_id:
-                current_page = self.email_list.current_page
-                self.load_folder_emails(self.current_folder_id, page=current_page)
-            # Go back to list view
-            self.on_back_to_list()
-            self.email_preview.show_empty_state()
+            # Get email and folder information
+            email = self.message_controller.get_message(email_id)
+            if not email:
+                QMessageBox.warning(self, "Error", "Email not found.")
+                return
+            
+            folder = self.folder_controller.get_folder(email.folder_id)
+            if not folder:
+                QMessageBox.warning(self, "Error", "Folder not found.")
+                return
+            
+            # Get account
+            accounts = self.account_controller.list_accounts()
+            account = None
+            for acc in accounts:
+                if acc.id == email.account_id:
+                    account = acc
+                    break
+            
+            if not account:
+                QMessageBox.warning(self, "Error", "Account not found.")
+                return
+            
+            try:
+                # Delete from server first
+                if email.uid_on_server:
+                    self.sync_controller.delete_message(account, folder, email)
+                
+                # Delete email from cache
+                from email_client.storage import db
+                db.execute("DELETE FROM emails WHERE id = ?", (email_id,))
+                
+                # Reload emails with pagination
+                if self.current_folder_id:
+                    current_page = self.email_list.current_page
+                    self.load_folder_emails(self.current_folder_id, page=current_page)
+                
+                # Go back to list view
+                self.on_back_to_list()
+                self.email_preview.show_empty_state()
+                
+                self.status_bar.showMessage(f"Email deleted successfully")
+            except Exception as e:
+                QMessageBox.critical(self, "Delete Error", f"Failed to delete email from server: {str(e)}")
+                # Still delete from cache if server deletion fails (user can manually delete later)
+                try:
+                    from email_client.storage import db
+                    db.execute("DELETE FROM emails WHERE id = ?", (email_id,))
+                    if self.current_folder_id:
+                        current_page = self.email_list.current_page
+                        self.load_folder_emails(self.current_folder_id, page=current_page)
+                    self.on_back_to_list()
+                    self.email_preview.show_empty_state()
+                except Exception:
+                    pass
     
     def handle_save_draft(self, draft_data: dict):
         """

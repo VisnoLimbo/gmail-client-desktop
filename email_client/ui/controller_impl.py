@@ -164,3 +164,13 @@ class SyncControllerImpl(SyncController):
         sync_manager = self._get_sync_manager(account)
         return sync_manager.fetch_and_cache_body(folder, message)
 
+    def mark_message_read(self, account: EmailAccount, folder: Folder, message: EmailMessage) -> None:
+        """Mark a message as read on the server and in the local cache."""
+        sync_manager = self._get_sync_manager(account)
+        sync_manager.mark_message_read(folder, message)
+    
+    def delete_message(self, account: EmailAccount, folder: Folder, message: EmailMessage) -> None:
+        """Delete a message from the server."""
+        sync_manager = self._get_sync_manager(account)
+        sync_manager.delete_message(folder, message)
+

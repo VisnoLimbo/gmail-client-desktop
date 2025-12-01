@@ -91,3 +91,13 @@ class SyncController(ABC):
         """Fetch email body from server if not cached."""
         pass
 
+    @abstractmethod
+    def mark_message_read(self, account: EmailAccount, folder: Folder, message: EmailMessage) -> None:
+        """Mark a message as read on the server and in the local cache."""
+        pass
+    
+    @abstractmethod
+    def delete_message(self, account: EmailAccount, folder: Folder, message: EmailMessage) -> None:
+        """Delete a message from the server."""
+        pass
+
