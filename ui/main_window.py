@@ -124,13 +124,13 @@ class MainWindow(QMainWindow):
     
     def setup_ui(self):
         """Setup the main UI"""
-        # Apply modern dark theme
+        # Apply modern light theme
         self.setStyleSheet("""
             QMainWindow {
-                background-color: #1e1e1e;
+                background-color: #ffffff;
             }
             QSplitter::handle {
-                background-color: #2d2d2d;
+                background-color: #dadce0;
             }
             QSplitter::handle:horizontal {
                 width: 2px;
@@ -141,7 +141,7 @@ class MainWindow(QMainWindow):
         """)
         
         central_widget = QWidget()
-        central_widget.setStyleSheet("background-color: #1e1e1e;")
+        central_widget.setStyleSheet("background-color: #ffffff;")
         self.setCentralWidget(central_widget)
         
         main_layout = QHBoxLayout()
@@ -172,7 +172,7 @@ class MainWindow(QMainWindow):
         
         # Top bar with search, account filter, and refresh
         top_bar = QWidget()
-        top_bar.setStyleSheet("background-color: #252526; padding: 8px;")
+        top_bar.setStyleSheet("background-color: #f5f5f5; padding: 8px;")
         top_bar_layout = QHBoxLayout()
         top_bar_layout.setContentsMargins(8, 8, 8, 8)
         
@@ -182,7 +182,7 @@ class MainWindow(QMainWindow):
             QPushButton {
                 background-color: transparent;
                 border: none;
-                color: #cccccc;
+                color: #202124;
                 font-size: 16px;
                 font-weight: bold;
                 text-align: left;
@@ -197,15 +197,15 @@ class MainWindow(QMainWindow):
         self.search_input.setPlaceholderText("Search emails...")
         self.search_input.setStyleSheet("""
             QLineEdit {
-                background-color: #3c3c3c;
-                border: 1px solid #555555;
+                background-color: #ffffff;
+                border: 1px solid #dadce0;
                 border-radius: 4px;
                 padding: 6px 12px;
-                color: #cccccc;
+                color: #202124;
                 min-width: 200px;
             }
             QLineEdit:focus {
-                border: 1px solid #0e639c;
+                border: 1px solid #1a73e8;
             }
         """)
         self.search_input.returnPressed.connect(self.on_search)
@@ -215,11 +215,11 @@ class MainWindow(QMainWindow):
         self.account_filter = QComboBox()
         self.account_filter.setStyleSheet("""
             QComboBox {
-                background-color: #3c3c3c;
-                border: 1px solid #555555;
+                background-color: #ffffff;
+                border: 1px solid #dadce0;
                 border-radius: 4px;
                 padding: 6px 12px;
-                color: #cccccc;
+                color: #202124;
                 min-width: 150px;
             }
         """)
@@ -231,17 +231,17 @@ class MainWindow(QMainWindow):
         refresh_btn = QPushButton("Refresh")
         refresh_btn.setStyleSheet("""
             QPushButton {
-                background-color: #0e639c;
+                background-color: #1a73e8;
                 color: white;
                 border: none;
                 border-radius: 4px;
                 padding: 6px 16px;
             }
             QPushButton:hover {
-                background-color: #1177bb;
+                background-color: #1765cc;
             }
             QPushButton:pressed {
-                background-color: #094771;
+                background-color: #1557b0;
             }
         """)
         refresh_btn.clicked.connect(self.on_refresh_clicked)
@@ -289,9 +289,9 @@ class MainWindow(QMainWindow):
         menubar = self.menuBar()
         menubar.setStyleSheet("""
             QMenuBar {
-                background-color: #252526;
-                color: #cccccc;
-                border-bottom: 1px solid #3e3e42;
+                background-color: #f5f5f5;
+                color: #202124;
+                border-bottom: 1px solid #dadce0;
                 padding: 2px;
             }
             QMenuBar::item {
@@ -300,15 +300,15 @@ class MainWindow(QMainWindow):
                 border-radius: 4px;
             }
             QMenuBar::item:selected {
-                background-color: #2a2d2e;
+                background-color: #e8eaed;
             }
             QMenuBar::item:pressed {
-                background-color: #094771;
+                background-color: #d3e3fd;
             }
             QMenu {
-                background-color: #252526;
-                color: #cccccc;
-                border: 1px solid #3e3e42;
+                background-color: #ffffff;
+                color: #202124;
+                border: 1px solid #dadce0;
                 padding: 4px;
             }
             QMenu::item {
@@ -316,11 +316,11 @@ class MainWindow(QMainWindow):
                 border-radius: 4px;
             }
             QMenu::item:selected {
-                background-color: #094771;
+                background-color: #e8f0fe;
             }
             QMenu::separator {
                 height: 1px;
-                background-color: #3e3e42;
+                background-color: #dadce0;
                 margin: 4px 8px;
             }
         """)
@@ -372,9 +372,9 @@ class MainWindow(QMainWindow):
         self.status_bar = QStatusBar()
         self.status_bar.setStyleSheet("""
             QStatusBar {
-                background-color: #252526;
-                color: #cccccc;
-                border-top: 1px solid #3e3e42;
+                background-color: #f5f5f5;
+                color: #5f6368;
+                border-top: 1px solid #dadce0;
                 padding: 2px;
             }
         """)

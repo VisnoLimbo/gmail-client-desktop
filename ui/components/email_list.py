@@ -30,34 +30,34 @@ class EmailList(QWidget):
     
     def setup_ui(self):
         """Setup the UI"""
-        # Modern dark theme styling
+        # Modern light theme styling
         self.setStyleSheet("""
             QWidget {
-                background-color: #1e1e1e;
-                color: #cccccc;
+                background-color: #ffffff;
+                color: #202124;
             }
             QLineEdit {
-                background-color: #3c3c3c;
-                border: 1px solid #555555;
+                background-color: #ffffff;
+                border: 1px solid #dadce0;
                 border-radius: 4px;
                 padding: 8px 12px;
-                color: #cccccc;
+                color: #202124;
                 font-size: 13px;
             }
             QLineEdit:focus {
-                border: 1px solid #0e639c;
-                background-color: #404040;
+                border: 1px solid #1a73e8;
+                background-color: #ffffff;
             }
             QComboBox {
-                background-color: #3c3c3c;
-                border: 1px solid #555555;
+                background-color: #ffffff;
+                border: 1px solid #dadce0;
                 border-radius: 4px;
                 padding: 6px 12px;
-                color: #cccccc;
+                color: #202124;
                 font-size: 13px;
             }
             QComboBox:hover {
-                border-color: #666666;
+                border-color: #bdc1c6;
             }
             QComboBox::drop-down {
                 border: none;
@@ -67,23 +67,23 @@ class EmailList(QWidget):
                 image: none;
                 border-left: 4px solid transparent;
                 border-right: 4px solid transparent;
-                border-top: 5px solid #cccccc;
+                border-top: 5px solid #5f6368;
                 margin-right: 8px;
             }
             QPushButton {
-                background-color: #3c3c3c;
-                color: #cccccc;
-                border: 1px solid #555555;
+                background-color: #ffffff;
+                color: #202124;
+                border: 1px solid #dadce0;
                 border-radius: 4px;
                 padding: 8px 16px;
                 font-size: 13px;
             }
             QPushButton:hover {
-                background-color: #464647;
-                border-color: #666666;
+                background-color: #e8eaed;
+                border-color: #bdc1c6;
             }
             QPushButton:pressed {
-                background-color: #2d2d30;
+                background-color: #d3e3fd;
             }
         """)
         
@@ -139,31 +139,31 @@ class EmailList(QWidget):
         # Modern table styling
         self.email_table.setStyleSheet("""
             QTableWidget {
-                background-color: #1e1e1e;
-                border: 1px solid #3e3e42;
+                background-color: #ffffff;
+                border: 1px solid #dadce0;
                 border-radius: 4px;
-                gridline-color: #2d2d2d;
-                color: #cccccc;
+                gridline-color: #e0e0e0;
+                color: #202124;
                 font-size: 13px;
-                selection-background-color: #094771;
+                selection-background-color: #e8f0fe;
             }
             QTableWidget::item {
                 padding: 8px;
                 border: none;
             }
             QTableWidget::item:hover {
-                background-color: #2a2d2e;
+                background-color: #f5f5f5;
             }
             QTableWidget::item:selected {
-                background-color: #094771;
-                color: white;
+                background-color: #e8f0fe;
+                color: #1a73e8;
             }
             QHeaderView::section {
-                background-color: #252526;
-                color: #858585;
+                background-color: #f5f5f5;
+                color: #5f6368;
                 padding: 10px;
                 border: none;
-                border-bottom: 2px solid #3e3e42;
+                border-bottom: 2px solid #dadce0;
                 font-weight: 600;
                 font-size: 12px;
                 text-transform: uppercase;

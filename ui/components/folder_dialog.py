@@ -24,7 +24,7 @@ class CreateFolderDialog(QDialog):
         label = QLabel("Enter folder name:")
         label.setStyleSheet("""
             QLabel {
-                color: #cccccc;
+                color: #202124;
                 font-size: 14px;
                 font-weight: 500;
             }
@@ -137,7 +137,7 @@ class RenameFolderDialog(QDialog):
         label = QLabel("Enter new folder name:")
         label.setStyleSheet("""
             QLabel {
-                color: #cccccc;
+                color: #202124;
                 font-size: 14px;
                 font-weight: 500;
             }
@@ -259,7 +259,7 @@ class MoveEmailDialog(QDialog):
         label = QLabel("Select destination folder:")
         label.setStyleSheet("""
             QLabel {
-                color: #cccccc;
+                color: #202124;
                 font-size: 14px;
                 font-weight: 500;
             }
