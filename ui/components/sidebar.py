@@ -30,14 +30,14 @@ class Sidebar(QWidget):
     
     def setup_ui(self):
         """Setup the UI"""
-        # Modern dark theme styling
+        # Modern light theme styling
         self.setStyleSheet("""
             QWidget {
-                background-color: #252526;
-                color: #cccccc;
+                background-color: #f5f5f5;
+                color: #202124;
             }
             QPushButton {
-                background-color: #0e639c;
+                background-color: #1a73e8;
                 color: white;
                 border: none;
                 border-radius: 4px;
@@ -45,23 +45,23 @@ class Sidebar(QWidget):
                 font-weight: 500;
             }
             QPushButton:hover {
-                background-color: #1177bb;
+                background-color: #1765cc;
             }
             QPushButton:pressed {
-                background-color: #0a4d73;
+                background-color: #1557b0;
             }
             QLabel {
-                color: #858585;
+                color: #5f6368;
                 font-size: 11px;
                 font-weight: 600;
                 text-transform: uppercase;
                 letter-spacing: 0.5px;
             }
             QListWidget {
-                background-color: #252526;
+                background-color: #f5f5f5;
                 border: none;
                 outline: none;
-                color: #cccccc;
+                color: #202124;
                 font-size: 13px;
             }
             QListWidget::item {
@@ -70,14 +70,14 @@ class Sidebar(QWidget):
                 margin: 2px 4px;
             }
             QListWidget::item:hover {
-                background-color: #2a2d2e;
+                background-color: #e8eaed;
             }
             QListWidget::item:selected {
-                background-color: #094771;
-                color: white;
+                background-color: #d3e3fd;
+                color: #1a73e8;
             }
             QListWidget::item:selected:hover {
-                background-color: #0e639c;
+                background-color: #c2ddff;
             }
         """)
         
@@ -90,7 +90,7 @@ class Sidebar(QWidget):
         compose_btn.setMinimumHeight(44)
         compose_btn.setStyleSheet("""
             QPushButton {
-                background-color: #0e639c;
+                background-color: #1a73e8;
                 color: white;
                 border: none;
                 border-radius: 6px;
@@ -99,10 +99,10 @@ class Sidebar(QWidget):
                 font-weight: 600;
             }
             QPushButton:hover {
-                background-color: #1177bb;
+                background-color: #1765cc;
             }
             QPushButton:pressed {
-                background-color: #0a4d73;
+                background-color: #1557b0;
             }
         """)
         compose_btn.clicked.connect(self.compose_clicked.emit)
@@ -117,7 +117,7 @@ class Sidebar(QWidget):
         folders_label = QLabel("Folders")
         folders_label.setStyleSheet("""
             QLabel {
-                color: #858585;
+                color: #5f6368;
                 font-size: 11px;
                 font-weight: 600;
                 text-transform: uppercase;
@@ -133,21 +133,21 @@ class Sidebar(QWidget):
         create_folder_btn.setStyleSheet("""
             QPushButton {
                 background-color: transparent;
-                color: #858585;
-                border: 1px solid #555555;
+                color: #5f6368;
+                border: 1px solid #dadce0;
                 border-radius: 4px;
                 font-size: 16px;
                 font-weight: 600;
                 padding: 2px;
             }
             QPushButton:hover {
-                background-color: #3c3c3c;
-                color: #cccccc;
-                border-color: #666666;
+                background-color: #e8eaed;
+                color: #202124;
+                border-color: #bdc1c6;
             }
             QPushButton:pressed {
-                background-color: #2d2d30;
-                border-color: #555555;
+                background-color: #d3e3fd;
+                border-color: #1a73e8;
             }
         """)
         create_folder_btn.clicked.connect(self.on_create_folder_clicked)
@@ -161,10 +161,10 @@ class Sidebar(QWidget):
         self.folder_list = QListWidget()
         self.folder_list.setStyleSheet("""
             QListWidget {
-                background-color: #252526;
+                background-color: #f5f5f5;
                 border: none;
                 outline: none;
-                color: #cccccc;
+                color: #202124;
                 font-size: 13px;
             }
             QListWidget::item {
@@ -173,14 +173,14 @@ class Sidebar(QWidget):
                 margin: 2px 0px;
             }
             QListWidget::item:hover {
-                background-color: #2a2d2e;
+                background-color: #e8eaed;
             }
             QListWidget::item:selected {
-                background-color: #094771;
-                color: white;
+                background-color: #d3e3fd;
+                color: #1a73e8;
             }
             QListWidget::item:selected:hover {
-                background-color: #0e639c;
+                background-color: #c2ddff;
             }
         """)
         self.folder_list.itemClicked.connect(self.on_folder_clicked)
@@ -192,7 +192,7 @@ class Sidebar(QWidget):
         accounts_label = QLabel("Accounts")
         accounts_label.setStyleSheet("""
             QLabel {
-                color: #858585;
+                color: #5f6368;
                 font-size: 11px;
                 font-weight: 600;
                 text-transform: uppercase;
@@ -205,10 +205,10 @@ class Sidebar(QWidget):
         self.account_list = QListWidget()
         self.account_list.setStyleSheet("""
             QListWidget {
-                background-color: #252526;
+                background-color: #f5f5f5;
                 border: none;
                 outline: none;
-                color: #cccccc;
+                color: #202124;
                 font-size: 13px;
             }
             QListWidget::item {
@@ -217,14 +217,14 @@ class Sidebar(QWidget):
                 margin: 2px 0px;
             }
             QListWidget::item:hover {
-                background-color: #2a2d2e;
+                background-color: #e8eaed;
             }
             QListWidget::item:selected {
-                background-color: #094771;
-                color: white;
+                background-color: #d3e3fd;
+                color: #1a73e8;
             }
             QListWidget::item:selected:hover {
-                background-color: #0e639c;
+                background-color: #c2ddff;
             }
         """)
         self.account_list.itemClicked.connect(self.on_account_clicked)
@@ -236,19 +236,19 @@ class Sidebar(QWidget):
         add_account_btn = QPushButton("+ Add Account")
         add_account_btn.setStyleSheet("""
             QPushButton {
-                background-color: #3c3c3c;
-                color: #cccccc;
-                border: 1px solid #555555;
+                background-color: #ffffff;
+                color: #202124;
+                border: 1px solid #dadce0;
                 border-radius: 6px;
                 padding: 8px 16px;
                 font-size: 13px;
             }
             QPushButton:hover {
-                background-color: #464647;
-                border-color: #666666;
+                background-color: #e8eaed;
+                border-color: #bdc1c6;
             }
             QPushButton:pressed {
-                background-color: #2d2d30;
+                background-color: #d3e3fd;
             }
         """)
         add_account_btn.clicked.connect(self.add_account_clicked.emit)
@@ -402,9 +402,9 @@ class Sidebar(QWidget):
                 menu = QMenu(self)
                 menu.setStyleSheet("""
                     QMenu {
-                        background-color: #252526;
-                        color: #cccccc;
-                        border: 1px solid #3e3e42;
+                        background-color: #ffffff;
+                        color: #202124;
+                        border: 1px solid #dadce0;
                         border-radius: 4px;
                         padding: 4px;
                     }
@@ -413,11 +413,11 @@ class Sidebar(QWidget):
                         border-radius: 4px;
                     }
                     QMenu::item:selected {
-                        background-color: #094771;
+                        background-color: #e8f0fe;
                     }
                     QMenu::separator {
                         height: 1px;
-                        background-color: #3e3e42;
+                        background-color: #dadce0;
                         margin: 4px 8px;
                     }
                 """)

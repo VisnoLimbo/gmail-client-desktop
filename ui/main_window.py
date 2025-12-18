@@ -124,13 +124,13 @@ class MainWindow(QMainWindow):
     
     def setup_ui(self):
         """Setup the main UI"""
-        # Apply modern dark theme
+        # Apply modern light theme
         self.setStyleSheet("""
             QMainWindow {
-                background-color: #1e1e1e;
+                background-color: #ffffff;
             }
             QSplitter::handle {
-                background-color: #2d2d2d;
+                background-color: #dadce0;
             }
             QSplitter::handle:horizontal {
                 width: 2px;
@@ -141,7 +141,7 @@ class MainWindow(QMainWindow):
         """)
         
         central_widget = QWidget()
-        central_widget.setStyleSheet("background-color: #1e1e1e;")
+        central_widget.setStyleSheet("background-color: #ffffff;")
         self.setCentralWidget(central_widget)
         
         main_layout = QHBoxLayout()
@@ -172,7 +172,7 @@ class MainWindow(QMainWindow):
         
         # Top bar with search, account filter, and refresh
         top_bar = QWidget()
-        top_bar.setStyleSheet("background-color: #252526; padding: 8px;")
+        top_bar.setStyleSheet("background-color: #f5f5f5; padding: 8px;")
         top_bar_layout = QHBoxLayout()
         top_bar_layout.setContentsMargins(8, 8, 8, 8)
         
@@ -182,7 +182,7 @@ class MainWindow(QMainWindow):
             QPushButton {
                 background-color: transparent;
                 border: none;
-                color: #cccccc;
+                color: #202124;
                 font-size: 16px;
                 font-weight: bold;
                 text-align: left;
@@ -197,15 +197,15 @@ class MainWindow(QMainWindow):
         self.search_input.setPlaceholderText("Search emails...")
         self.search_input.setStyleSheet("""
             QLineEdit {
-                background-color: #3c3c3c;
-                border: 1px solid #555555;
+                background-color: #ffffff;
+                border: 1px solid #dadce0;
                 border-radius: 4px;
                 padding: 6px 12px;
-                color: #cccccc;
+                color: #202124;
                 min-width: 200px;
             }
             QLineEdit:focus {
-                border: 1px solid #0e639c;
+                border: 1px solid #1a73e8;
             }
         """)
         self.search_input.returnPressed.connect(self.on_search)
@@ -215,11 +215,11 @@ class MainWindow(QMainWindow):
         self.account_filter = QComboBox()
         self.account_filter.setStyleSheet("""
             QComboBox {
-                background-color: #3c3c3c;
-                border: 1px solid #555555;
+                background-color: #ffffff;
+                border: 1px solid #dadce0;
                 border-radius: 4px;
                 padding: 6px 12px;
-                color: #cccccc;
+                color: #202124;
                 min-width: 150px;
             }
         """)
@@ -231,17 +231,17 @@ class MainWindow(QMainWindow):
         refresh_btn = QPushButton("Refresh")
         refresh_btn.setStyleSheet("""
             QPushButton {
-                background-color: #0e639c;
+                background-color: #1a73e8;
                 color: white;
                 border: none;
                 border-radius: 4px;
                 padding: 6px 16px;
             }
             QPushButton:hover {
-                background-color: #1177bb;
+                background-color: #1765cc;
             }
             QPushButton:pressed {
-                background-color: #094771;
+                background-color: #1557b0;
             }
         """)
         refresh_btn.clicked.connect(self.on_refresh_clicked)
@@ -258,8 +258,6 @@ class MainWindow(QMainWindow):
         self.email_list.email_selected.connect(self.on_email_selected)
         self.email_list.refresh_requested.connect(self.on_refresh_clicked)
         self.email_list.page_changed.connect(self.on_email_page_changed)
-        self.email_list.bulk_delete_requested.connect(self.on_bulk_delete_requested)
-        self.email_list.bulk_move_requested.connect(self.on_bulk_move_requested)
         self.right_stack.addWidget(self.email_list)  # Index 0
         self.current_folder_id = None  # Track current folder for pagination
         
@@ -291,9 +289,9 @@ class MainWindow(QMainWindow):
         menubar = self.menuBar()
         menubar.setStyleSheet("""
             QMenuBar {
-                background-color: #252526;
-                color: #cccccc;
-                border-bottom: 1px solid #3e3e42;
+                background-color: #f5f5f5;
+                color: #202124;
+                border-bottom: 1px solid #dadce0;
                 padding: 2px;
             }
             QMenuBar::item {
@@ -302,15 +300,15 @@ class MainWindow(QMainWindow):
                 border-radius: 4px;
             }
             QMenuBar::item:selected {
-                background-color: #2a2d2e;
+                background-color: #e8eaed;
             }
             QMenuBar::item:pressed {
-                background-color: #094771;
+                background-color: #d3e3fd;
             }
             QMenu {
-                background-color: #252526;
-                color: #cccccc;
-                border: 1px solid #3e3e42;
+                background-color: #ffffff;
+                color: #202124;
+                border: 1px solid #dadce0;
                 padding: 4px;
             }
             QMenu::item {
@@ -318,11 +316,11 @@ class MainWindow(QMainWindow):
                 border-radius: 4px;
             }
             QMenu::item:selected {
-                background-color: #094771;
+                background-color: #e8f0fe;
             }
             QMenu::separator {
                 height: 1px;
-                background-color: #3e3e42;
+                background-color: #dadce0;
                 margin: 4px 8px;
             }
         """)
@@ -374,9 +372,9 @@ class MainWindow(QMainWindow):
         self.status_bar = QStatusBar()
         self.status_bar.setStyleSheet("""
             QStatusBar {
-                background-color: #252526;
-                color: #cccccc;
-                border-top: 1px solid #3e3e42;
+                background-color: #f5f5f5;
+                color: #5f6368;
+                border-top: 1px solid #dadce0;
                 padding: 2px;
             }
         """)
@@ -1765,129 +1763,6 @@ class MainWindow(QMainWindow):
                         self.status_bar.showMessage(f"Email moved to '{dest_folder.name}' successfully")
                 except Exception as e:
                     QMessageBox.critical(self, "Error", f"Failed to move email: {str(e)}")
-    
-    def on_bulk_delete_requested(self, email_ids: list):
-        """Handle bulk delete request"""
-        if not email_ids:
-            return
-        
-        count = len(email_ids)
-        reply = QMessageBox.question(
-            self, 
-            "Delete Emails", 
-            f"Are you sure you want to delete {count} email{'s' if count > 1 else ''}?",
-            QMessageBox.Yes | QMessageBox.No
-        )
-        
-        if reply == QMessageBox.Yes:
-            success_count = 0
-            failed_count = 0
-            
-            for email_id in email_ids:
-                try:
-                    # Get email and folder information
-                    email = self.message_controller.get_message(email_id)
-                    if not email:
-                        failed_count += 1
-                        continue
-                    
-                    folder = self.folder_controller.get_folder(email.folder_id)
-                    if not folder:
-                        failed_count += 1
-                        continue
-                    
-                    # Get account
-                    accounts = self.account_controller.list_accounts()
-                    account = None
-                    for acc in accounts:
-                        if acc.id == email.account_id:
-                            account = acc
-                            break
-                    
-                    if account:
-                        # Delete from server
-                        try:
-                            self.sync_controller.delete_message(account, folder, email)
-                        except Exception as e:
-                            print(f"Failed to delete email {email_id} from server: {e}")
-                    
-                    # Delete from cache
-                    try:
-                        from email_client.storage import db
-                        db.execute("DELETE FROM emails WHERE id = ?", (email_id,))
-                        success_count += 1
-                    except Exception:
-                        failed_count += 1
-                        
-                except Exception as e:
-                    print(f"Error deleting email {email_id}: {e}")
-                    failed_count += 1
-            
-            # Reload folder
-            if self.current_folder_id:
-                current_page = self.email_list.current_page
-                self.load_folder_emails(self.current_folder_id, page=current_page)
-            
-            # Clear selection and refresh
-            self.email_list.selected_email_ids.clear()
-            self.email_list.update_table()
-            self.email_list.update_bulk_actions_visibility()
-            
-            # Show status message
-            if failed_count == 0:
-                self.status_bar.showMessage(f"Successfully deleted {success_count} email{'s' if success_count > 1 else ''}")
-            else:
-                self.status_bar.showMessage(f"Deleted {success_count} email{'s' if success_count > 1 else ''}, {failed_count} failed")
-    
-    def on_bulk_move_requested(self, email_ids: list):
-        """Handle bulk move request"""
-        if not email_ids:
-            return
-        
-        # Get first email to determine account and current folder
-        first_email = self.message_controller.get_message(email_ids[0])
-        if not first_email:
-            QMessageBox.warning(self, "Error", "Email not found.")
-            return
-        
-        # Get all folders for the account
-        folders = self.folder_controller.list_folders(first_email.account_id)
-        if not folders:
-            QMessageBox.warning(self, "Error", "No folders available.")
-            return
-        
-        from ui.components.folder_dialog import MoveEmailDialog
-        dialog = MoveEmailDialog(folders, current_folder_id=first_email.folder_id, parent=self)
-        if dialog.exec_() == QDialog.Accepted:
-            dest_folder_id = dialog.get_selected_folder_id()
-            if dest_folder_id:
-                success_count = 0
-                failed_count = 0
-                
-                for email_id in email_ids:
-                    try:
-                        self.folder_controller.move_email(email_id, dest_folder_id)
-                        success_count += 1
-                    except Exception as e:
-                        print(f"Failed to move email {email_id}: {e}")
-                        failed_count += 1
-                
-                # Reload current folder to reflect the moves
-                if self.current_folder_id:
-                    current_page = self.email_list.current_page
-                    self.load_folder_emails(self.current_folder_id, page=current_page)
-                
-                # Clear selection
-                self.email_list.selected_email_ids.clear()
-                self.email_list.update_table()
-                
-                # Show status message
-                dest_folder = self.folder_controller.get_folder(dest_folder_id)
-                if dest_folder:
-                    if failed_count == 0:
-                        self.status_bar.showMessage(f"Successfully moved {success_count} email{'s' if success_count > 1 else ''} to '{dest_folder.name}'")
-                    else:
-                        self.status_bar.showMessage(f"Moved {success_count} email{'s' if success_count > 1 else ''} to '{dest_folder.name}', {failed_count} failed")
     
     def closeEvent(self, event):
         """Handle window close event - graceful shutdown"""
